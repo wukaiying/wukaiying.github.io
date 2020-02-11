@@ -6,9 +6,32 @@
   <title>First - My New Hugo Site</title>
   <meta property="og:title" content="First - My New Hugo Site" />
   <meta name="twitter:title" content="First - My New Hugo Site" />
-  <meta name="description" content="my first hugo!">
-  <meta property="og:description" content="my first hugo!">
-  <meta name="twitter:description" content="my first hugo!">
+  <meta name="description" content="使用hugo&#43;gitpage搭建个人博客
+安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
+themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
+content 是博客文章的目录。
+安装主题 https://themes.gohugo.io/whiteplain/
+使用hugo写文章 hugo new post/my-first-post.md 设置文章相关属性
+title: &quot;My First Post&quot; date: 2017-12-14T11:18:15&#43;08:00 weight: 70 markup: mmark draft: false keywords: [&quot;hugo&quot;] description: &quot;第一篇文章&quot; tags: [&quot;hugo&quot;, &quot;pages&quot;] categories: [&quot;pages&quot;] author: &quot;&quot; 预览 hugo server -D 确保本地网站正常，hugo server运行后在本地打开localhost:1313检查网站效果和内容，注意hugo server这个命令不会构建草稿，所以如果有草稿需要发布，将文章中的draft设置为false。
+将hugo部署在gitpage 在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。
+再创建一个名称为.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。
+进入本地网站目录，将本地网站全部内容推送到远程blog仓库。
+cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &quot;first commit&quot; git push -u origin master 删除本地网站目录下的public文件夹">
+  <meta property="og:description" content="使用hugo&#43;gitpage搭建个人博客
+安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
+themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
+content 是博客文章的目录。
+安装主题 https://themes.gohugo.io/whiteplain/
+使用hugo写文章 hugo new post/my-first-post.md 设置文章相关属性
+title: &quot;My First Post&quot; date: 2017-12-14T11:18:15&#43;08:00 weight: 70 markup: mmark draft: false keywords: [&quot;hugo&quot;] description: &quot;第一篇文章&quot; tags: [&quot;hugo&quot;, &quot;pages&quot;] categories: [&quot;pages&quot;] author: &quot;&quot; 预览 hugo server -D 确保本地网站正常，hugo server运行后在本地打开localhost:1313检查网站效果和内容，注意hugo server这个命令不会构建草稿，所以如果有草稿需要发布，将文章中的draft设置为false。
+将hugo部署在gitpage 在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。
+再创建一个名称为.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。
+进入本地网站目录，将本地网站全部内容推送到远程blog仓库。
+cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &quot;first commit&quot; git push -u origin master 删除本地网站目录下的public文件夹">
+  <meta name="twitter:description" content="使用hugo&#43;gitpage搭建个人博客
+安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
+themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
+content 是博客文章的目录。 …">
   <meta name="author" content="Your name"/>
   <meta property="og:site_name" content="My New Hugo Site" />
   <meta property="og:url" content="https://wukaiying.github.io/post/first/" />
@@ -51,8 +74,86 @@
         <li class="article-meta-date"><time>February 11, 2020</time></li>
       </ul>
       
-      <p>my first hugo!</p>
+      <p>使用hugo+gitpage搭建个人博客</p>
+<h3 id="hugo">安装hugo</h3>
+<pre><code>brew install hugo  
+</code></pre><pre><code>hugo version
+</code></pre><h3 id="blog">生成blog根目录</h3>
+<pre><code>hugo new site blog
+</code></pre><p>config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。</p>
+<p>themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。</p>
+<p>content 是博客文章的目录。</p>
+<h3 id="heading">安装主题</h3>
+<p><a href="https://themes.gohugo.io/whiteplain/">https://themes.gohugo.io/whiteplain/</a></p>
+<h3 id="hugo-1">使用hugo写文章</h3>
+<pre><code>hugo new post/my-first-post.md
+</code></pre><p>设置文章相关属性</p>
+<pre><code>title: &quot;My First Post&quot; 
+date: 2017-12-14T11:18:15+08:00  
+weight: 70  
+markup: mmark  
+draft: false  
+keywords: [&quot;hugo&quot;]  
+description: &quot;第一篇文章&quot;  
+tags: [&quot;hugo&quot;, &quot;pages&quot;]  
+categories: [&quot;pages&quot;]  
+author: &quot;&quot;  
+</code></pre><h3 id="heading-1">预览</h3>
+<pre><code>hugo server -D
+</code></pre><p>确保本地网站正常，hugo server运行后在本地打开localhost:1313检查网站效果和内容，注意hugo server这个命令不会构建草稿，所以如果有草稿需要发布，将文章中的draft设置为false。</p>
+<h3 id="hugogitpage">将hugo部署在gitpage</h3>
+<p>在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。</p>
+<p>再创建一个名称为<!-- raw HTML omitted -->.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。</p>
+<p>进入本地网站目录，将本地网站全部内容推送到远程blog仓库。</p>
+<pre><code>cd blog
+git init
+git remote add origin git@github.com:wukaiying/blog.git
+git add -A
+git commit -m &quot;first commit&quot;
+git push -u origin master
+</code></pre><p>删除本地网站目录下的public文件夹</p>
+<p>创建public子模块</p>
+<pre><code>git submodule add -b master git@github.com:wukaiying/wukaiying.github.io.git public
+</code></pre><p>然后就可以执行hugo命令，此命令会自动将网站静态内容生成到public文件夹，然后提交到远程blog仓库</p>
+<pre><code>cd public
+git status
+git add .
+git commit -m &quot;first commit&quot;
+git push -u orgin master
+</code></pre><p>过一会就可以打开<!-- raw HTML omitted -->.github.io查看网站了</p>
+<p>注意：本地网站是关联的blog仓库，本地网站下的public文件夹是以子模块的形式关联的github.io仓库，他们是相对独立的。</p>
+<h3 id="heading-2">自动部署脚本</h3>
+<p>完成博客编写后，使用该脚本可以更新public中内容，并将代码push到你的gitpage仓库中</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#75715e">#!/bin/bash
+</span><span style="color:#75715e"></span>
+echo -e <span style="color:#e6db74">&#34;\033[0;32mDeploying updates to GitHub...\033[0m&#34;</span>
 
+<span style="color:#75715e"># Build the project.</span>
+hugo <span style="color:#75715e"># if using a theme, replace with `hugo -t &lt;YOURTHEME&gt;`</span>
+
+<span style="color:#75715e"># Go To Public folder</span>
+cd public
+<span style="color:#75715e"># Add changes to git.</span>
+git add .
+
+<span style="color:#75715e"># Commit changes.</span>
+msg<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;rebuilding site `date`&#34;</span>
+<span style="color:#66d9ef">if</span> <span style="color:#f92672">[</span> $# -eq <span style="color:#ae81ff">1</span> <span style="color:#f92672">]</span>
+  <span style="color:#66d9ef">then</span> msg<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;</span>$1<span style="color:#e6db74">&#34;</span>
+<span style="color:#66d9ef">fi</span>
+git commit -m <span style="color:#e6db74">&#34;</span>$msg<span style="color:#e6db74">&#34;</span>
+
+<span style="color:#75715e"># Push source and build repos.</span>
+git push origin master
+
+<span style="color:#75715e"># Come Back up to the Project Root</span>
+cd ..
+
+</code></pre></div><h3 id="heading-3">最后</h3>
+<p>你需要定时将你的blog的内容定时push到你的blog仓库里面，防止本地数据丢失</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">cd blog
+git push -u origin master
+</code></pre></div>
     </article>
 
     

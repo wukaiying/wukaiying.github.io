@@ -27,7 +27,17 @@
       <pubDate>Tue, 11 Feb 2020 10:01:25 +0800</pubDate>
       
       <guid>https://wukaiying.github.io/post/first/</guid>
-      <description>my first hugo!</description>
+      <description>使用hugo+gitpage搭建个人博客
+安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
+themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
+content 是博客文章的目录。
+安装主题 https://themes.gohugo.io/whiteplain/
+使用hugo写文章 hugo new post/my-first-post.md 设置文章相关属性
+title: &amp;quot;My First Post&amp;quot; date: 2017-12-14T11:18:15+08:00 weight: 70 markup: mmark draft: false keywords: [&amp;quot;hugo&amp;quot;] description: &amp;quot;第一篇文章&amp;quot; tags: [&amp;quot;hugo&amp;quot;, &amp;quot;pages&amp;quot;] categories: [&amp;quot;pages&amp;quot;] author: &amp;quot;&amp;quot; 预览 hugo server -D 确保本地网站正常，hugo server运行后在本地打开localhost:1313检查网站效果和内容，注意hugo server这个命令不会构建草稿，所以如果有草稿需要发布，将文章中的draft设置为false。
+将hugo部署在gitpage 在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。
+再创建一个名称为.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。
+进入本地网站目录，将本地网站全部内容推送到远程blog仓库。
+cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &amp;quot;first commit&amp;quot; git push -u origin master 删除本地网站目录下的public文件夹</description>
     </item>
     
   </channel>
