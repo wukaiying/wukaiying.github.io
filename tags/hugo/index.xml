@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>hugo on My New Hugo Site</title>
+    <title>hugo on k-tech</title>
     <link>https://wukaiying.github.io/tags/hugo/</link>
-    <description>Recent content in hugo on My New Hugo Site</description>
+    <description>Recent content in hugo on k-tech</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
@@ -27,7 +27,10 @@ title: &amp;quot;My First Post&amp;quot; date: 2017-12-14T11:18:15+08:00 weight:
 将hugo部署在gitpage 在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。
 再创建一个名称为.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。
 进入本地网站目录，将本地网站全部内容推送到远程blog仓库。
-cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &amp;quot;first commit&amp;quot; git push -u origin master 删除本地网站目录下的public文件夹</description>
+cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &amp;quot;first commit&amp;quot; git push -u origin master 删除本地网站目录下的public文件夹
+创建public子模块
+git submodule add -b master git@github.com:wukaiying/wukaiying.github.io.git public 然后就可以执行hugo命令，此命令会自动将网站静态内容生成到public文件夹，然后提交到远程blog仓库
+cd public git status git add . git commit -m &amp;quot;first commit&amp;quot; git push -u orgin master 过一会就可以打开.</description>
     </item>
     
   </channel>
