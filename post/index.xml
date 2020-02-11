@@ -22,13 +22,12 @@
     </item>
     
     <item>
-      <title>First</title>
+      <title>hugo&#43;gitpage搭建个人博客</title>
       <link>https://wukaiying.github.io/post/first/</link>
       <pubDate>Tue, 11 Feb 2020 10:01:25 +0800</pubDate>
       
       <guid>https://wukaiying.github.io/post/first/</guid>
-      <description>使用hugo+gitpage搭建个人博客
-安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
+      <description>安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
 themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
 content 是博客文章的目录。
 安装主题 https://themes.gohugo.io/whiteplain/

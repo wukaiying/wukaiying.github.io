@@ -18,7 +18,32 @@
   </url>
   
   <url>
+    <loc>https://wukaiying.github.io/categories/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://wukaiying.github.io/tags/gitpage/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://wukaiying.github.io/tags/hugo/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://wukaiying.github.io/categories/hugo/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
     <loc>https://wukaiying.github.io/post/first/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://wukaiying.github.io/tags/</loc>
     <lastmod>2020-02-11T10:01:25+08:00</lastmod>
   </url>
   
@@ -33,15 +58,7 @@
   </url>
   
   <url>
-    <loc>https://wukaiying.github.io/categories/</loc>
-  </url>
-  
-  <url>
     <loc>https://wukaiying.github.io/series/</loc>
-  </url>
-  
-  <url>
-    <loc>https://wukaiying.github.io/tags/</loc>
   </url>
   
 </urlset>
