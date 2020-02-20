@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>k8s on Kaiying</title>
+    <link>https://wukaiying.github.io/tags/k8s/</link>
+    <description>Recent content in k8s on Kaiying</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <copyright>&amp;copy; Copyright 2017 Your name</copyright>
+    <lastBuildDate>Tue, 11 Feb 2020 10:01:25 +0800</lastBuildDate>
+    
+	<atom:link href="https://wukaiying.github.io/tags/k8s/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>Kubernetes中leaderelection实现组件高可用</title>
+      <link>https://wukaiying.github.io/post/my-first-post/</link>
+      <pubDate>Tue, 11 Feb 2020 10:01:25 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/post/my-first-post/</guid>
+      <description>在Kubernetes中，通常kube-schduler和kube-controller-manager都是多副本进行部署的来保证高可用，而真正在工作的实例其实只有一个。
+这里就利用到 leaderelection 的选主机制，保证leader是处于工作状态，并且在leader挂掉之后，从其他节点选取新的leader保证组件正常工作。今天就来看看这个包的使用以及它内部是如何实现的。
+基本使用 以下是一个简单使用的例子，编译完成之后同时启动多个进程，但是只有一个进程在工作，当把leader进程kill掉之后，会重新选举出一个leader进行工作，即执行其中的 run 方法：
+/* 例子来源于client-go中的example包中， */ package main import ( &amp;#34;context&amp;#34; &amp;#34;flag&amp;#34; &amp;#34;os&amp;#34; &amp;#34;os/signal&amp;#34; &amp;#34;syscall&amp;#34; &amp;#34;time&amp;#34; &amp;#34;github.com/google/uuid&amp;#34; metav1 &amp;#34;k8s.io/apimachinery/pkg/apis/meta/v1&amp;#34; clientset &amp;#34;k8s.io/client-go/kubernetes&amp;#34; &amp;#34;k8s.io/client-go/rest&amp;#34; &amp;#34;k8s.io/client-go/tools/clientcmd&amp;#34; &amp;#34;k8s.io/client-go/tools/leaderelection&amp;#34; &amp;#34;k8s.io/client-go/tools/leaderelection/resourcelock&amp;#34; &amp;#34;k8s.io/klog&amp;#34; ) func buildConfig(kubeconfig string) (*rest.Config, error) { if kubeconfig != &amp;#34;&amp;#34; { cfg, err := clientcmd.BuildConfigFromFlags(&amp;#34;&amp;#34;, kubeconfig) if err != nil { returnnil, err } return cfg, nil } cfg, err := rest.InClusterConfig() if err != nil { returnnil, err } return cfg, nil } func main() { klog.InitFlags(nil) var kubeconfig string var leaseLockName string var leaseLockNamespace string var id string flag.StringVar(&amp;amp;kubeconfig, &amp;#34;kubeconfig&amp;#34;, &amp;#34;&amp;#34;, &amp;#34;absolute path to the kubeconfig file&amp;#34;) flag.</description>
+    </item>
+    
+  </channel>
+</rss>

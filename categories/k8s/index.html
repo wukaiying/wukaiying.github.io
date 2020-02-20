@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
-  <title>Kaiying</title>
-  <meta property="og:title" content="Kaiying" />
-  <meta name="twitter:title" content="Kaiying" />
+  <title>k8s - Kaiying</title>
+  <meta property="og:title" content="k8s - Kaiying" />
+  <meta name="twitter:title" content="k8s - Kaiying" />
   <meta name="author" content="kaiying"/>
   <meta property="og:site_name" content="Kaiying" />
-  <meta property="og:url" content="https://wukaiying.github.io/" />
+  <meta property="og:url" content="https://wukaiying.github.io/categories/k8s/" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary" />
   <meta name="generator" content="Hugo 0.61.0" />
-  <link href="/index.xml" rel="alternate" type="application/rss+xml" title="Kaiying" />
-  <link href="/index.xml" rel="feed" type="application/rss+xml" title="Kaiying" />
+  <link href="/categories/k8s/index.xml" rel="alternate" type="application/rss+xml" title="Kaiying" />
+  <link href="/categories/k8s/index.xml" rel="feed" type="application/rss+xml" title="Kaiying" />
 
   <link rel="stylesheet" href="/css/style.css" media="all" />
   <link rel="stylesheet" href="/css/syntax.css" media="all" />
@@ -39,66 +39,11 @@
 </header>
 <hr class="site-header-bottom">
 
+  <div class="breadcrumb">
+    <a href="/categories/">Categories</a> / K8s
+  </div>
   <div class="main" role="main">
-    <section class="list home-list">
-      <article class="article">
-        <a href="/post/my-second/" class="article-titles">
-          <h2 class="article-title">My Second</h2>
-          
-        </a>
-        <ul class="article-meta">
-          <li class="article-meta-date"><time>February 11, 2020</time></li>
-        </ul>
-        <div class="article-content">
-          
-        </div>
-        <div class="article-readmore"><a href="/post/my-second/">Read more...</a></div>
-        <div class="article-floatclear"></div>
-      </article>
-      <article class="article">
-        <a href="/post/first/" class="article-titles">
-          <h2 class="article-title">hugo&#43;gitpage搭建个人博客</h2>
-          
-        </a>
-        <ul class="article-meta">
-          <li class="article-meta-date"><time>February 11, 2020</time></li>
-          <li class="article-meta-categories">
-            <a href="/categories/hugo/">
-              <i class="fas fa-folder"></i>
-              hugo
-            </a>&nbsp;
-          </li>
-          <li class="article-meta-tags">
-            <a href="/tags/hugo/">
-              <i class="fas fa-tag"></i>
-              hugo
-            </a>&nbsp;
-          </li>
-          <li class="article-meta-tags">
-            <a href="/tags/gitpage/">
-              <i class="fas fa-tag"></i>
-              gitpage
-            </a>&nbsp;
-          </li>
-        </ul>
-        <div class="article-content">
-          安装hugo brew install hugo hugo version 生成blog根目录 hugo new site blog config.toml 是配置文件，在里面可以定义博客地址、构建配置、标题、导航栏等等。
-themes 是主题目录，可以去 themes.gohugo.io 下载喜欢的主题。
-content 是博客文章的目录。
-安装主题 https://themes.gohugo.io/whiteplain/
-使用hugo写文章 hugo new post/my-first-post.md 设置文章相关属性
-title: &quot;My First Post&quot; date: 2017-12-14T11:18:15+08:00 weight: 70 markup: mmark draft: false keywords: [&quot;hugo&quot;] description: &quot;第一篇文章&quot; tags: [&quot;hugo&quot;, &quot;pages&quot;] categories: [&quot;pages&quot;] author: &quot;&quot; 预览 hugo server -D 确保本地网站正常，hugo server运行后在本地打开localhost:1313检查网站效果和内容，注意hugo server这个命令不会构建草稿，所以如果有草稿需要发布，将文章中的draft设置为false。
-将hugo部署在gitpage 在Github创建一个仓库，例如名字叫blog，可以是私有的，这个仓库用来存放网站内容和源文件。
-再创建一个名称为.github.io的仓库，username为GitHub用户名，这个仓库用于存放最终发布的网站内容。
-进入本地网站目录，将本地网站全部内容推送到远程blog仓库。
-cd blog git init git remote add origin git@github.com:wukaiying/blog.git git add -A git commit -m &quot;first commit&quot; git push -u origin master 删除本地网站目录下的public文件夹
-创建public子模块
-git submodule add -b master git@github.com:wukaiying/wukaiying.github.io.git public 然后就可以执行hugo命令，此命令会自动将网站静态内容生成到public文件夹，然后提交到远程blog仓库
-cd public git status git add . git commit -m &quot;first commit&quot; git push -u orgin master 过一会就可以打开.
-        </div>
-        <div class="article-readmore"><a href="/post/first/">Read more...</a></div>
-        <div class="article-floatclear"></div>
-      </article>
+    <section class="list taxonomy-list">
       <article class="article">
         <a href="/post/my-first-post/" class="article-titles">
           <h2 class="article-title">Kubernetes中leaderelection实现组件高可用</h2>
@@ -146,7 +91,7 @@ cd public git status git add . git commit -m &quot;first commit&quot; git push -
   <div class="copyright">&copy; Copyright 2017 Your name</div>
   <ul class="site-footer-items">
     <li class="site-footer-item-rsslink">
-      <a href="/index.xml" type="application/rss+xml" target="_blank" title="RSS">
+      <a href="/categories/k8s/index.xml" type="application/rss+xml" target="_blank" title="RSS">
         <i class="fas fa-rss"></i>
       </a>
     </li>

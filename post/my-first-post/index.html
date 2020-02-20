@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Kubernetes中leaderelection实现组件高可用 - Kaiying</title>
+  <meta property="og:title" content="Kubernetes中leaderelection实现组件高可用 - Kaiying" />
+  <meta name="twitter:title" content="Kubernetes中leaderelection实现组件高可用 - Kaiying" />
+  <meta name="description" content="Kubernetes中leaderelection实现组件高可用">
+  <meta property="og:description" content="Kubernetes中leaderelection实现组件高可用">
+  <meta name="twitter:description" content="Kubernetes中leaderelection实现组件高可用">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/post/my-first-post/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Kubernetes中leaderelection实现组件高可用</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>February 11, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+        <li class="article-meta-tags">
+          <a href="/tags/k8s/">
+            <i class="fas fa-tag"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+        <li class="article-meta-tags">
+          <a href="/tags/elect/">
+            <i class="fas fa-tag"></i>
+            elect
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">基本使用</a></li>
+        <li><a href="#heading-3">源码分析</a></li>
+        <li><a href="#heading-6">总结</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <p>在Kubernetes中，通常kube-schduler和kube-controller-manager都是多副本进行部署的来保证高可用，而真正在工作的实例其实只有一个。</p>
+<p>这里就利用到 leaderelection 的选主机制，保证leader是处于工作状态，并且在leader挂掉之后，从其他节点选取新的leader保证组件正常工作。今天就来看看这个包的使用以及它内部是如何实现的。</p>
+<h3 id="heading">基本使用</h3>
+<p>以下是一个简单使用的例子，编译完成之后同时启动多个进程，但是只有一个进程在工作，当把leader进程kill掉之后，会重新选举出一个leader进行工作，即执行其中的 run 方法：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">/*
+</span><span style="color:#75715e">例子来源于client-go中的example包中，
+</span><span style="color:#75715e">*/</span>
+<span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+<span style="color:#f92672">import</span> (
+	<span style="color:#e6db74">&#34;context&#34;</span>
+	<span style="color:#e6db74">&#34;flag&#34;</span>
+	<span style="color:#e6db74">&#34;os&#34;</span>
+	<span style="color:#e6db74">&#34;os/signal&#34;</span>
+	<span style="color:#e6db74">&#34;syscall&#34;</span>
+	<span style="color:#e6db74">&#34;time&#34;</span>
+
+	<span style="color:#e6db74">&#34;github.com/google/uuid&#34;</span>
+	<span style="color:#a6e22e">metav1</span> <span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/apis/meta/v1&#34;</span>
+	<span style="color:#a6e22e">clientset</span> <span style="color:#e6db74">&#34;k8s.io/client-go/kubernetes&#34;</span>
+	<span style="color:#e6db74">&#34;k8s.io/client-go/rest&#34;</span>
+	<span style="color:#e6db74">&#34;k8s.io/client-go/tools/clientcmd&#34;</span>
+	<span style="color:#e6db74">&#34;k8s.io/client-go/tools/leaderelection&#34;</span>
+	<span style="color:#e6db74">&#34;k8s.io/client-go/tools/leaderelection/resourcelock&#34;</span>
+	<span style="color:#e6db74">&#34;k8s.io/klog&#34;</span>
+)
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">buildConfig</span>(<span style="color:#a6e22e">kubeconfig</span> <span style="color:#66d9ef">string</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">rest</span>.<span style="color:#a6e22e">Config</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeconfig</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">cfg</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">clientcmd</span>.<span style="color:#a6e22e">BuildConfigFromFlags</span>(<span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#a6e22e">kubeconfig</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">returnnil</span>, <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">cfg</span>, <span style="color:#66d9ef">nil</span>
+	}
+
+	<span style="color:#a6e22e">cfg</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">rest</span>.<span style="color:#a6e22e">InClusterConfig</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">returnnil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">cfg</span>, <span style="color:#66d9ef">nil</span>
+}
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">InitFlags</span>(<span style="color:#66d9ef">nil</span>)
+
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">kubeconfig</span> <span style="color:#66d9ef">string</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">leaseLockName</span> <span style="color:#66d9ef">string</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">leaseLockNamespace</span> <span style="color:#66d9ef">string</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">id</span> <span style="color:#66d9ef">string</span>
+
+	<span style="color:#a6e22e">flag</span>.<span style="color:#a6e22e">StringVar</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">kubeconfig</span>, <span style="color:#e6db74">&#34;kubeconfig&#34;</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#e6db74">&#34;absolute path to the kubeconfig file&#34;</span>)
+	<span style="color:#a6e22e">flag</span>.<span style="color:#a6e22e">StringVar</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">id</span>, <span style="color:#e6db74">&#34;id&#34;</span>, <span style="color:#a6e22e">uuid</span>.<span style="color:#a6e22e">New</span>().<span style="color:#a6e22e">String</span>(), <span style="color:#e6db74">&#34;the holder identity name&#34;</span>)
+	<span style="color:#a6e22e">flag</span>.<span style="color:#a6e22e">StringVar</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">leaseLockName</span>, <span style="color:#e6db74">&#34;lease-lock-name&#34;</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#e6db74">&#34;the lease lock resource name&#34;</span>)
+	<span style="color:#a6e22e">flag</span>.<span style="color:#a6e22e">StringVar</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">leaseLockNamespace</span>, <span style="color:#e6db74">&#34;lease-lock-namespace&#34;</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#e6db74">&#34;the lease lock resource namespace&#34;</span>)
+	<span style="color:#a6e22e">flag</span>.<span style="color:#a6e22e">Parse</span>()
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">leaseLockName</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatal</span>(<span style="color:#e6db74">&#34;unable to get lease lock resource name (missing lease-lock-name flag).&#34;</span>)
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">leaseLockNamespace</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatal</span>(<span style="color:#e6db74">&#34;unable to get lease lock resource namespace (missing lease-lock-namespace flag).&#34;</span>)
+	}
+
+	<span style="color:#75715e">// leader election uses the Kubernetes API by writing to a
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// lock object, which can be a LeaseLock object (preferred),
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// a ConfigMap, or an Endpoints (deprecated) object.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// Conflicting writes are detected and each client handles those actions
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// independently.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">config</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">buildConfig</span>(<span style="color:#a6e22e">kubeconfig</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatal</span>(<span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#a6e22e">client</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">clientset</span>.<span style="color:#a6e22e">NewForConfigOrDie</span>(<span style="color:#a6e22e">config</span>)
+
+	<span style="color:#a6e22e">run</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>) {
+		<span style="color:#75715e">// complete your controller loop here
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Controller loop...&#34;</span>)
+
+		<span style="color:#66d9ef">select</span> {}
+	}
+
+	<span style="color:#75715e">// use a Go context so we can tell the leaderelection code when we
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// want to step down
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">cancel</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">WithCancel</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Background</span>())
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">cancel</span>()
+
+	<span style="color:#75715e">// listen for interrupts or the Linux SIGTERM signal and cancel
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// our context, which the leader election code will observe and
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// step down
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Signal</span>, <span style="color:#ae81ff">1</span>)
+	<span style="color:#a6e22e">signal</span>.<span style="color:#a6e22e">Notify</span>(<span style="color:#a6e22e">ch</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Interrupt</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">SIGTERM</span>)
+	<span style="color:#a6e22e">gofunc</span>() {
+		<span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Received termination, signaling shutdown&#34;</span>)
+		<span style="color:#a6e22e">cancel</span>()
+	}()
+
+	<span style="color:#75715e">// we use the Lease lock type since edits to Leases are less common
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// and fewer objects in the cluster watch &#34;all Leases&#34;.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// 指定锁的资源对象，这里使用了Lease资源，还支持configmap，endpoint，或者multilock(即多种配合使用)
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">lock</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">resourcelock</span>.<span style="color:#a6e22e">LeaseLock</span>{
+		<span style="color:#a6e22e">LeaseMeta</span>: <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">ObjectMeta</span>{
+			<span style="color:#a6e22e">Name</span>:      <span style="color:#a6e22e">leaseLockName</span>,
+			<span style="color:#a6e22e">Namespace</span>: <span style="color:#a6e22e">leaseLockNamespace</span>,
+		},
+		<span style="color:#a6e22e">Client</span>: <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">CoordinationV1</span>(),
+		<span style="color:#a6e22e">LockConfig</span>: <span style="color:#a6e22e">resourcelock</span>.<span style="color:#a6e22e">ResourceLockConfig</span>{
+			<span style="color:#a6e22e">Identity</span>: <span style="color:#a6e22e">id</span>,
+		},
+	}
+
+	<span style="color:#75715e">// start the leader election code loop
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">RunOrDie</span>(<span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">LeaderElectionConfig</span>{
+		<span style="color:#a6e22e">Lock</span>: <span style="color:#a6e22e">lock</span>,
+		<span style="color:#75715e">// IMPORTANT: you MUST ensure that any code you have that
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// is protected by the lease must terminate **before**
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// you call cancel. Otherwise, you could have a background
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// loop still running and another process could
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// get elected before your background loop finished, violating
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// the stated goal of the lease.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">ReleaseOnCancel</span>: <span style="color:#66d9ef">true</span>,
+		<span style="color:#a6e22e">LeaseDuration</span>:   <span style="color:#ae81ff">60</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>,<span style="color:#75715e">//租约时间
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">RenewDeadline</span>:   <span style="color:#ae81ff">15</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>,<span style="color:#75715e">//更新租约的
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">RetryPeriod</span>:     <span style="color:#ae81ff">5</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>,<span style="color:#75715e">//非leader节点重试时间
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">Callbacks</span>: <span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">LeaderCallbacks</span>{
+			<span style="color:#a6e22e">OnStartedLeading</span>: <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>) {
+                <span style="color:#75715e">//变为leader执行的业务代码
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// we&#39;re notified when we start - this is where you would
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// usually put your code
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">run</span>(<span style="color:#a6e22e">ctx</span>)
+			},
+			<span style="color:#a6e22e">OnStoppedLeading</span>: <span style="color:#66d9ef">func</span>() {
+                 <span style="color:#75715e">// 进程退出
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// we can do cleanup here
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;leader lost: %s&#34;</span>, <span style="color:#a6e22e">id</span>)
+				<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">0</span>)
+			},
+			<span style="color:#a6e22e">OnNewLeader</span>: <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">identity</span> <span style="color:#66d9ef">string</span>) {
+                <span style="color:#75715e">//当产生新的leader后执行的方法
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// we&#39;re notified when new leader elected
+</span><span style="color:#75715e"></span>				<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">identity</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">id</span> {
+					<span style="color:#75715e">// I just got the lock
+</span><span style="color:#75715e"></span>					<span style="color:#66d9ef">return</span>
+				}
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;new leader elected: %s&#34;</span>, <span style="color:#a6e22e">identity</span>)
+			},
+		},
+	})
+}
+</code></pre></div><h4 id="heading-1">关键启动参数</h4>
+<pre><code>kubeconfig: 指定kubeconfig文件地址
+lease-lock-name：指定lock的名称
+lease-lock-namespace：指定lock存储的namespace
+id: 例子中提供的区别参数，用于区分实例
+logtostderr：klog提供的参数，指定log输出到控制台
+v: 指定日志输出级别
+</code></pre><h5 id="heading-2">启动多个进程</h5>
+<p>进程1：</p>
+<pre><code>go run main.go -kubeconfig=/Users/silenceper/.kube/config -logtostderr=true -lease-lock-name=example -lease-lock-namespace=default -id=1 -v=4
+I0215 19:56:37.049658   48045 leaderelection.go:242] attempting to acquire leader lease  default/example...
+I0215 19:56:37.080368   48045 leaderelection.go:252] successfully acquired lease default/example
+I0215 19:56:37.080437   48045 main.go:87] Controller loop...
+</code></pre><p>进程2：</p>
+<pre><code>go run main.go -kubeconfig=/Users/silenceper/.kube/config -logtostderr=true -lease-lock-name=example -lease-lock-namespace=default -id=2 -v=4
+I0215 19:56:37.049658   48045 leaderelection.go:242] attempting to acquire leader lease  default/example...
+I0215 19:56:37.080368   48045 leaderelection.go:252] successfully acquired lease default/example
+I0215 19:56:37.080437   48045 main.go:87] Controller loop...
+</code></pre><p>这里可以看出来id=1的进程持有锁，并且运行的程序，而id=2的进程表示无法获取到锁，在不断的进程尝试。</p>
+<p>现在kill掉id=1进程，在等待lock释放之后（有个LeaseDuration时间），leader变为id=2的进程执行工作。</p>
+<pre><code>I0215 20:01:41.489300   48791 leaderelection.go:252] successfully acquired lease default/example
+I0215 20:01:41.489577   48791 main.go:87] Controller loop...
+</code></pre><h3 id="heading-3">源码分析</h3>
+<p>基本原理其实就是利用通过Kubernetes中configmap，endpoints或者lease资源实现一个分布式锁，抢(acqure)到锁的节点成为leader，并且定期更新（renew）。其他进程也在不断的尝试进行抢占，抢占不到则继续等待下次循环。当leader节点挂掉之后，租约到期，其他节点就成为新的leader。</p>
+<h4 id="heading-4">入口</h4>
+<p>通过 leaderelection.RunOrDie 启动</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">RunOrDie</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">lec</span> <span style="color:#a6e22e">LeaderElectionConfig</span>) {
+	<span style="color:#a6e22e">le</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">NewLeaderElector</span>(<span style="color:#a6e22e">lec</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		panic(<span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">lec</span>.<span style="color:#a6e22e">WatchDog</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">lec</span>.<span style="color:#a6e22e">WatchDog</span>.<span style="color:#a6e22e">SetLeaderElection</span>(<span style="color:#a6e22e">le</span>)
+	}
+	<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">ctx</span>)
+}
+</code></pre></div><p>传入参数 LeaderElectionConfig:</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">LeaderElectionConfig</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#75715e">// Lock 的类型
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">Lock</span> <span style="color:#a6e22e">rl</span>.<span style="color:#a6e22e">Interface</span>
+	<span style="color:#75715e">//持有锁的时间
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">LeaseDuration</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>
+	<span style="color:#75715e">//在更新租约的超时时间
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">RenewDeadline</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>
+    <span style="color:#75715e">//竞争获取锁的时间
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">RetryPeriod</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>
+    <span style="color:#75715e">//状态变化时执行的函数，支持三种：
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//1、OnStartedLeading 启动是执行的业务代码
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//2、OnStoppedLeading leader停止执行的方法
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//3、OnNewLeader 当产生新的leader后执行的方法
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">Callbacks</span> <span style="color:#a6e22e">LeaderCallbacks</span>
+
+    <span style="color:#75715e">//进行监控检查
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// WatchDog is the associated health checker
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// WatchDog may be null if its not needed/configured.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">WatchDog</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">HealthzAdaptor</span>
+    <span style="color:#75715e">//leader退出时，是否执行release方法
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">ReleaseOnCancel</span> <span style="color:#66d9ef">bool</span>
+    
+	<span style="color:#75715e">// Name is the name of the resource lock for debugging
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">Name</span> <span style="color:#66d9ef">string</span>
+}
+</code></pre></div><p>LeaderElectionConfig.lock 支持保存在以下三种资源中：</p>
+<pre><code>configmap 
+endpoint 
+lease 
+</code></pre><p>包中还提供了一个multilock即可以进行选择两种，当其中一种保存失败时，选择第二中，可以在interface.go中看到：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">lockType</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">EndpointsResourceLock</span>:<span style="color:#75715e">//保存在endpoints
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">endpointsLock</span>, <span style="color:#66d9ef">nil</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">ConfigMapsResourceLock</span>:<span style="color:#75715e">//保存在configmaps
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">configmapLock</span>, <span style="color:#66d9ef">nil</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">LeasesResourceLock</span>:<span style="color:#75715e">//保存在leases
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">leaseLock</span>, <span style="color:#66d9ef">nil</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">EndpointsLeasesResourceLock</span>:<span style="color:#75715e">//优先尝试保存在endpoint失败时保存在lease
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">MultiLock</span>{
+			<span style="color:#a6e22e">Primary</span>:   <span style="color:#a6e22e">endpointsLock</span>,
+			<span style="color:#a6e22e">Secondary</span>: <span style="color:#a6e22e">leaseLock</span>,
+		}, <span style="color:#66d9ef">nil</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">ConfigMapsLeasesResourceLock</span>:<span style="color:#75715e">//优先尝试保存在configmap，失败时保存在lease
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">MultiLock</span>{
+			<span style="color:#a6e22e">Primary</span>:   <span style="color:#a6e22e">configmapLock</span>,
+			<span style="color:#a6e22e">Secondary</span>: <span style="color:#a6e22e">leaseLock</span>,
+		}, <span style="color:#66d9ef">nil</span>
+	<span style="color:#66d9ef">default</span>:
+		<span style="color:#a6e22e">returnnil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Invalid lock-type %s&#34;</span>, <span style="color:#a6e22e">lockType</span>)
+	}
+</code></pre></div><p>以lease资源对象为例，可以在查看到保存的内容:</p>
+<pre><code>$ kubectl get lease example -n default -o yaml
+apiVersion:coordination.k8s.io/v1
+kind:Lease
+metadata:
+  creationTimestamp:&quot;2020-02-15T11:56:37Z&quot;
+  name:example
+  namespace:default
+  resourceVersion:&quot;210675&quot;
+  selfLink:/apis/coordination.k8s.io/v1/namespaces/default/leases/example
+  uid:a3470a06-6fc3-42dc-8242-9d6cebdf5315
+spec:
+  acquireTime:&quot;2020-02-15T12:01:41.476971Z&quot;//获得锁时间
+  holderIdentity:&quot;2&quot;//持有锁进程的标识
+  leaseDurationSeconds:60//lease租约
+  leaseTransitions:1//leader更换次数
+  renewTime:&quot;2020-02-15T12:05:37.134655Z&quot;//更新租约的时间
+</code></pre><p>关注其spec中的字段，分别进行标注,对应结构体如下：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">LeaderElectionRecord</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#a6e22e">HolderIdentity</span>       <span style="color:#66d9ef">string</span><span style="color:#e6db74">`</span><span style="color:#e6db74">json:&#34;holderIdentity&#34;</span><span style="color:#e6db74">`</span><span style="color:#75715e">//持有锁进程的标识，一般可以利用主机名
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">LeaseDurationSeconds</span> <span style="color:#66d9ef">int</span><span style="color:#e6db74">`</span><span style="color:#e6db74">json:&#34;leaseDurationSeconds&#34;</span><span style="color:#e6db74">`</span><span style="color:#75715e">//  lock的租约
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">AcquireTime</span>          <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">Time</span> <span style="color:#e6db74">`</span><span style="color:#e6db74">json:&#34;acquireTime&#34;</span><span style="color:#e6db74">`</span><span style="color:#75715e">//持有锁的时间
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">RenewTime</span>            <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">Time</span> <span style="color:#e6db74">`</span><span style="color:#e6db74">json:&#34;renewTime&#34;</span><span style="color:#e6db74">`</span><span style="color:#75715e">//更新时间
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">LeaderTransitions</span>    <span style="color:#66d9ef">int</span><span style="color:#e6db74">`</span><span style="color:#e6db74">json:&#34;leaderTransitions&#34;</span><span style="color:#e6db74">`</span><span style="color:#75715e">//leader更换的次数
+</span><span style="color:#75715e"></span>}
+</code></pre></div><h4 id="heading-5">获取的锁以及更新锁</h4>
+<p>Run方法中包含了获取锁以及更新锁的入口</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// Run starts the leader election loop
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">le</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">LeaderElector</span>) <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>) {
+	<span style="color:#a6e22e">deferfunc</span>() {
+        <span style="color:#75715e">//进行退出执行
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">HandleCrash</span>()
+        <span style="color:#75715e">//停止时执行回调方法
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Callbacks</span>.<span style="color:#a6e22e">OnStoppedLeading</span>()
+	}()
+    <span style="color:#75715e">//不断的进行获得锁，如果获得锁成功则执行后面的方法，否则不断的进行重试
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">acquire</span>(<span style="color:#a6e22e">ctx</span>) {
+		<span style="color:#66d9ef">return</span><span style="color:#75715e">// ctx signalled done
+</span><span style="color:#75715e"></span>	}
+	<span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">cancel</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">WithCancel</span>(<span style="color:#a6e22e">ctx</span>)
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">cancel</span>()
+    <span style="color:#75715e">//获取锁成功，当前进程变为leader，执行回调函数中的业务代码
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Callbacks</span>.<span style="color:#a6e22e">OnStartedLeading</span>(<span style="color:#a6e22e">ctx</span>)
+    <span style="color:#75715e">//不断的循环进行进行租约的更新，保证锁一直被当前进行持有
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">renew</span>(<span style="color:#a6e22e">ctx</span>)
+}
+</code></pre></div><p>le.acquire 和 le.renew 内部都是调用了 le.tryAcquireOrRenew 函数，只是对于返回结果的处理不一样。</p>
+<p>le.acquire 对于 le.tryAcquireOrRenew 返回成功则退出，失败则继续。</p>
+<p>le.renew 则相反，成功则继续，失败则退出。</p>
+<p>我们来看看 tryAcquireOrRenew 方法：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">le</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">LeaderElector</span>) <span style="color:#a6e22e">tryAcquireOrRenew</span>() <span style="color:#66d9ef">bool</span> {
+	<span style="color:#a6e22e">now</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">Now</span>()
+    <span style="color:#75715e">//锁资源对象内容
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">leaderElectionRecord</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">rl</span>.<span style="color:#a6e22e">LeaderElectionRecord</span>{
+		<span style="color:#a6e22e">HolderIdentity</span>:       <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Lock</span>.<span style="color:#a6e22e">Identity</span>(),<span style="color:#75715e">//唯一标识
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">LeaseDurationSeconds</span>: int(<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">LeaseDuration</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>),
+		<span style="color:#a6e22e">RenewTime</span>:            <span style="color:#a6e22e">now</span>,
+		<span style="color:#a6e22e">AcquireTime</span>:          <span style="color:#a6e22e">now</span>,
+	}
+
+	<span style="color:#75715e">// 1. obtain or create the ElectionRecord
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// 第一步：从k8s资源中获取原有的锁
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">oldLeaderElectionRecord</span>, <span style="color:#a6e22e">oldLeaderElectionRawRecord</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Lock</span>.<span style="color:#a6e22e">Get</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">IsNotFound</span>(<span style="color:#a6e22e">err</span>) {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;error retrieving resource lock %v: %v&#34;</span>, <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Lock</span>.<span style="color:#a6e22e">Describe</span>(), <span style="color:#a6e22e">err</span>)
+			<span style="color:#a6e22e">returnfalse</span>
+		}
+        <span style="color:#75715e">//资源对象不存在，进行锁资源创建
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Lock</span>.<span style="color:#a6e22e">Create</span>(<span style="color:#a6e22e">leaderElectionRecord</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;error initially creating leader election record: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+			<span style="color:#a6e22e">returnfalse</span>
+		}
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedRecord</span> = <span style="color:#a6e22e">leaderElectionRecord</span>
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedTime</span> = <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>()
+		<span style="color:#a6e22e">returntrue</span>
+	}
+
+	<span style="color:#75715e">// 2. Record obtained, check the Identity &amp; Time
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// 第二步，对比存储在k8s中的锁资源与上一次获取的锁资源是否一致
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">bytes</span>.<span style="color:#a6e22e">Equal</span>(<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedRawRecord</span>, <span style="color:#a6e22e">oldLeaderElectionRawRecord</span>) {
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedRecord</span> = <span style="color:#f92672">*</span><span style="color:#a6e22e">oldLeaderElectionRecord</span>
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedRawRecord</span> = <span style="color:#a6e22e">oldLeaderElectionRawRecord</span>
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedTime</span> = <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>()
+	}
+    <span style="color:#75715e">//判断持有的锁是否到期以及是否被自己持有
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">iflen</span>(<span style="color:#a6e22e">oldLeaderElectionRecord</span>.<span style="color:#a6e22e">HolderIdentity</span>) &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span>
+		<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedTime</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">LeaseDuration</span>).<span style="color:#a6e22e">After</span>(<span style="color:#a6e22e">now</span>.<span style="color:#a6e22e">Time</span>) <span style="color:#f92672">&amp;&amp;</span>
+		!<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">IsLeader</span>() {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;lock is held by %v and has not yet expired&#34;</span>, <span style="color:#a6e22e">oldLeaderElectionRecord</span>.<span style="color:#a6e22e">HolderIdentity</span>)
+		<span style="color:#a6e22e">returnfalse</span>
+	}
+
+	<span style="color:#75715e">// 3. We&#39;re going to try to update. The leaderElectionRecord is set to it&#39;s default
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// here. Let&#39;s correct it before updating.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//第三步：自己现在是leader，但是分两组情况，上一次也是leader和首次变为leader
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">IsLeader</span>() {
+        <span style="color:#75715e">//自己本身就是leader则不需要更新AcquireTime和LeaderTransitions
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">leaderElectionRecord</span>.<span style="color:#a6e22e">AcquireTime</span> = <span style="color:#a6e22e">oldLeaderElectionRecord</span>.<span style="color:#a6e22e">AcquireTime</span>
+		<span style="color:#a6e22e">leaderElectionRecord</span>.<span style="color:#a6e22e">LeaderTransitions</span> = <span style="color:#a6e22e">oldLeaderElectionRecord</span>.<span style="color:#a6e22e">LeaderTransitions</span>
+	} <span style="color:#66d9ef">else</span> {
+        <span style="color:#75715e">//首次自己变为leader则更新leader的更换次数
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">leaderElectionRecord</span>.<span style="color:#a6e22e">LeaderTransitions</span> = <span style="color:#a6e22e">oldLeaderElectionRecord</span>.<span style="color:#a6e22e">LeaderTransitions</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>
+	}
+
+    <span style="color:#75715e">//更新锁资源，这里如果在 Get 和 Update 之间有变化，将会更新失败
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// update the lock itself
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Lock</span>.<span style="color:#a6e22e">Update</span>(<span style="color:#a6e22e">leaderElectionRecord</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Failed to update lock: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		<span style="color:#a6e22e">returnfalse</span>
+	}
+
+	<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedRecord</span> = <span style="color:#a6e22e">leaderElectionRecord</span>
+	<span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">observedTime</span> = <span style="color:#a6e22e">le</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>()
+	<span style="color:#a6e22e">returntrue</span>
+}
+</code></pre></div><p>在这一步如果发生并发操作怎么样？</p>
+<p>这里很重要一点就是利用到了k8s api操作的原子性：</p>
+<p>在 le.config.Lock.Get() 中会获取到锁的对象，其中有一个 resourceVersion 字段用于标识一个资源对象的内部版本，每次更新操作都会更新其值。如果一个更新操作附加上了 resourceVersion 字段，那么 apiserver 就会通过验证当前 resourceVersion 的值与指定的值是否相匹配来确保在此次更新操作周期内没有其他的更新操作，从而保证了更新操作的原子性。</p>
+<h3 id="heading-6">总结</h3>
+<p>leaderelection 主要是利用了k8s API操作的原子性实现了一个分布式锁，在不断的竞争中进行选举。</p>
+<p>选中为leader的进行才会执行具体的业务代码，这在k8s中非常的常见，而且我们很方便的利用这个包完成组件的编写，从而实现组件的高可用，比如部署为一个多副本的Deployment，当leader的pod退出后会重新启动，可能锁就被其他pod获取继续执行。</p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer">
+          <a href="/post/first/" data-toggle="tooltip" data-placement="top" title="hugo&#43;gitpage搭建个人博客">&lt; Newer</a>
+      </li>
+      <li class="pager-older pager-noitem">Older &gt;</li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
