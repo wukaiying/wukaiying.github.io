@@ -45,7 +45,7 @@
   <div class="main" role="main">
     <section class="list taxonomy-list">
       <article class="article">
-        <a href="/post/my-first-post/" class="article-titles">
+        <a href="/k8s/my-first-post/" class="article-titles">
           <h2 class="article-title">Kubernetes中leaderelection实现组件高可用</h2>
           
         </a>
@@ -76,7 +76,7 @@
 基本使用 以下是一个简单使用的例子，编译完成之后同时启动多个进程，但是只有一个进程在工作，当把leader进程kill掉之后，会重新选举出一个leader进行工作，即执行其中的 run 方法：
 /* 例子来源于client-go中的example包中， */ package main import ( &#34;context&#34; &#34;flag&#34; &#34;os&#34; &#34;os/signal&#34; &#34;syscall&#34; &#34;time&#34; &#34;github.com/google/uuid&#34; metav1 &#34;k8s.io/apimachinery/pkg/apis/meta/v1&#34; clientset &#34;k8s.io/client-go/kubernetes&#34; &#34;k8s.io/client-go/rest&#34; &#34;k8s.io/client-go/tools/clientcmd&#34; &#34;k8s.io/client-go/tools/leaderelection&#34; &#34;k8s.io/client-go/tools/leaderelection/resourcelock&#34; &#34;k8s.io/klog&#34; ) func buildConfig(kubeconfig string) (*rest.Config, error) { if kubeconfig != &#34;&#34; { cfg, err := clientcmd.BuildConfigFromFlags(&#34;&#34;, kubeconfig) if err != nil { returnnil, err } return cfg, nil } cfg, err := rest.InClusterConfig() if err != nil { returnnil, err } return cfg, nil } func main() { klog.InitFlags(nil) var kubeconfig string var leaseLockName string var leaseLockNamespace string var id string flag.StringVar(&amp;kubeconfig, &#34;kubeconfig&#34;, &#34;&#34;, &#34;absolute path to the kubeconfig file&#34;) flag.
         </div>
-        <div class="article-readmore"><a href="/post/my-first-post/">Read more...</a></div>
+        <div class="article-readmore"><a href="/k8s/my-first-post/">Read more...</a></div>
         <div class="article-floatclear"></div>
       </article>
     </section>

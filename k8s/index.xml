@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>elect on Kaiying</title>
-    <link>https://wukaiying.github.io/tags/elect/</link>
-    <description>Recent content in elect on Kaiying</description>
+    <title>K8s on Kaiying</title>
+    <link>https://wukaiying.github.io/k8s/</link>
+    <description>Recent content in K8s on Kaiying</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
     <lastBuildDate>Tue, 11 Feb 2020 10:01:25 +0800</lastBuildDate>
     
-	<atom:link href="https://wukaiying.github.io/tags/elect/index.xml" rel="self" type="application/rss+xml" />
+	<atom:link href="https://wukaiying.github.io/k8s/index.xml" rel="self" type="application/rss+xml" />
     
     
     <item>

@@ -48,7 +48,7 @@
   </url>
   
   <url>
-    <loc>https://wukaiying.github.io/categories/k8s/</loc>
+    <loc>https://wukaiying.github.io/k8s/</loc>
     <lastmod>2020-02-11T10:01:25+08:00</lastmod>
   </url>
   
@@ -58,7 +58,12 @@
   </url>
   
   <url>
-    <loc>https://wukaiying.github.io/post/my-first-post/</loc>
+    <loc>https://wukaiying.github.io/categories/k8s/</loc>
+    <lastmod>2020-02-11T10:01:25+08:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://wukaiying.github.io/k8s/my-first-post/</loc>
     <lastmod>2020-02-11T10:01:25+08:00</lastmod>
   </url>
   

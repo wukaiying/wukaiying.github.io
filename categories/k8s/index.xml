@@ -14,10 +14,10 @@
     
     <item>
       <title>Kubernetes中leaderelection实现组件高可用</title>
-      <link>https://wukaiying.github.io/post/my-first-post/</link>
+      <link>https://wukaiying.github.io/k8s/my-first-post/</link>
       <pubDate>Tue, 11 Feb 2020 10:01:25 +0800</pubDate>
       
-      <guid>https://wukaiying.github.io/post/my-first-post/</guid>
+      <guid>https://wukaiying.github.io/k8s/my-first-post/</guid>
       <description>在Kubernetes中，通常kube-schduler和kube-controller-manager都是多副本进行部署的来保证高可用，而真正在工作的实例其实只有一个。
 这里就利用到 leaderelection 的选主机制，保证leader是处于工作状态，并且在leader挂掉之后，从其他节点选取新的leader保证组件正常工作。今天就来看看这个包的使用以及它内部是如何实现的。
 基本使用 以下是一个简单使用的例子，编译完成之后同时启动多个进程，但是只有一个进程在工作，当把leader进程kill掉之后，会重新选举出一个leader进行工作，即执行其中的 run 方法：
