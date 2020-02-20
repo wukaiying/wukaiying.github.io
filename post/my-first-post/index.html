@@ -238,7 +238,7 @@ lease-lock-namespace：指定lock存储的namespace
 id: 例子中提供的区别参数，用于区分实例
 logtostderr：klog提供的参数，指定log输出到控制台
 v: 指定日志输出级别
-</code></pre><h5 id="heading-2">启动多个进程</h5>
+</code></pre><h4 id="heading-2">启动多个进程</h4>
 <p>进程1：</p>
 <pre><code>go run main.go -kubeconfig=/Users/silenceper/.kube/config -logtostderr=true -lease-lock-name=example -lease-lock-namespace=default -id=1 -v=4
 I0215 19:56:37.049658   48045 leaderelection.go:242] attempting to acquire leader lease  default/example...
