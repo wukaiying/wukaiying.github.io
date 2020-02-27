@@ -75,8 +75,9 @@
       <p>golang开发中需要用到插件动态加载技术，需要主程序动态加载一些功能模块，不需要修改主程序。相比于java
 ,java 可以通过加载class文件方式来实现模块加载，而golang通常都是单个二进制文件。
 go-plugin则使用另外一种方式实现插件加载，主进程和插件进程是两个独立的进程，二者通过rpc/grpc的方式进行通信，
-从而实现主进程调用插件进程。
-其次，golang也原生提供一种插件模块加载机制plugins。</p>
+从而实现主进程调用插件进程。</p>
+
+<p>其次，golang也原生提供一种插件模块加载机制plugins，下面依次进行介绍。</p>
 
 <h2 id="goplugin">go-plugin</h2>
 
@@ -384,98 +385,91 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 }
 <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Name</span> = <span style="color:#e6db74">&#34;name from plugin.go&#34;</span></code></pre></div>
 <p>编译plugin.go</p>
+<pre><code>go build --buildmode=plugin -o plugin.so plugin.go</code></pre>
+<p>新建use_plugin.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
 
-<p>```shell script
-go build --buildmode=plugin -o plugin.so plugin.go</p>
-<pre><code>新建use_plugin.go
-
-```go
-package main
-
-import (
-   "fmt"
-   "os"
-   "plugin"
+<span style="color:#f92672">import</span> (
+   <span style="color:#e6db74">&#34;fmt&#34;</span>
+   <span style="color:#e6db74">&#34;os&#34;</span>
+   <span style="color:#e6db74">&#34;plugin&#34;</span>
 )
 
-func main()  {
-   p, err := plugin.Open("./plugin.so")
-   if err != nil {
-      fmt.Println(err)
-      os.Exit(1)
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>()  {
+   <span style="color:#a6e22e">p</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Open</span>(<span style="color:#e6db74">&#34;./plugin.so&#34;</span>)
+   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">err</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
 
-   //获取plugin.go中的Hello方法
-   symbol,err := p.Lookup("Hello")
-   if err != nil {
-      fmt.Println(err)
-      os.Exit(1)
+   <span style="color:#75715e">//获取plugin.go中的Hello方法
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">symbol</span>,<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">Lookup</span>(<span style="color:#e6db74">&#34;Hello&#34;</span>)
+   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">err</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
 
-   //判断symbol类型是不是func()类型
-   hello, ok := symbol.(func())
-   if !ok {
-      fmt.Println(err)
-      os.Exit(1)
+   <span style="color:#75715e">//判断symbol类型是不是func()类型
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">hello</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">symbol</span>.(<span style="color:#66d9ef">func</span>())
+   <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">err</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
-    //执行plugin中的方法
-   hello()
+    <span style="color:#75715e">//执行plugin中的方法
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">hello</span>()
 
-   //获取plugin.go中的变量的值
-   //symbol, err = p.Lookup("Name")
-   //if err != nil {
-   // fmt.Println(err)
-   // os.Exit(1)
-   //}
-   //
-   //name, ok := symbol.(string)
-   //if !ok{
-   // fmt.Println(err)
-   // os.Exit(1)
-   //}
-   //fmt.Println(name)
-}</code></pre>
+   <span style="color:#75715e">//获取plugin.go中的变量的值
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//symbol, err = p.Lookup(&#34;Name&#34;)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//if err != nil {
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">// fmt.Println(err)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">// os.Exit(1)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//}
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//name, ok := symbol.(string)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//if !ok{
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">// fmt.Println(err)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">// os.Exit(1)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//}
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//fmt.Println(name)
+</span><span style="color:#75715e"></span>}</code></pre></div>
 <p>编译main.go</p>
+<pre><code>go build use_plugin.go</code></pre>
+<h4 id="示例二">示例二</h4>
 
-<p>```shell script
-go build use_plugin.go</p>
-<pre><code>#### 示例二
-新建#plugin.go
+<p>新建plugin.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
 
-```go
-package main
-
-import (
-   "log"
-   "os/exec"
-   "time"
+<span style="color:#f92672">import</span> (
+   <span style="color:#e6db74">&#34;log&#34;</span>
+   <span style="color:#e6db74">&#34;os/exec&#34;</span>
+   <span style="color:#e6db74">&#34;time&#34;</span>
 )
 
-func init() {
-   log.Println("plugin init function called")
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">init</span>() {
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;plugin init function called&#34;</span>)
 }
 
-type BadNastyDoctor string
+<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">BadNastyDoctor</span> <span style="color:#66d9ef">string</span>
 
-func (g BadNastyDoctor) HealthCheck() error {
-   bs, err := exec.Command("bash", "-c", "echo 'test'").CombinedOutput()
-   if err != nil {
-      return err
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">g</span> <span style="color:#a6e22e">BadNastyDoctor</span>) <span style="color:#a6e22e">HealthCheck</span>() <span style="color:#66d9ef">error</span> {
+   <span style="color:#a6e22e">bs</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">exec</span>.<span style="color:#a6e22e">Command</span>(<span style="color:#e6db74">&#34;bash&#34;</span>, <span style="color:#e6db74">&#34;-c&#34;</span>, <span style="color:#e6db74">&#34;echo &#39;test&#39;&#34;</span>).<span style="color:#a6e22e">CombinedOutput</span>()
+   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
    }
-   log.Println("now is ",g)
-   log.Println("shell has exected ->>>>>", string(bs))
-   return nil
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;now is &#34;</span>,<span style="color:#a6e22e">g</span>)
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;shell has exected -&gt;&gt;&gt;&gt;&gt;&#34;</span>, string(<span style="color:#a6e22e">bs</span>))
+   <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
 }
 
-//相当于new了一个BadNastyDoctor对象
-var Doctor = BadNastyDoctor(time.Now().Format(time.RFC3339))
+<span style="color:#75715e">//相当于new了一个BadNastyDoctor对象
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Doctor</span> = <span style="color:#a6e22e">BadNastyDoctor</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Now</span>().<span style="color:#a6e22e">Format</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">RFC3339</span>))
 
-//可以这样访问Doctor的方法
-//func test()  {
-// Doctor.HealthCheck()
-//}
-
-//使用 go build -buildmode=plugin -o=plugin.so plugin.go 来编译该文件</code></pre>
+<span style="color:#75715e">//可以这样访问Doctor的方法
+</span><span style="color:#75715e"></span><span style="color:#75715e">//func test()  {
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Doctor.HealthCheck()
+</span><span style="color:#75715e"></span><span style="color:#75715e">//}
+</span><span style="color:#75715e"></span>
+<span style="color:#f92672">/</span><span style="color:#f92672">/</span><span style="color:#a6e22e">使用</span> <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">build</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">buildmode</span>=<span style="color:#a6e22e">plugin</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">o</span>=<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">so</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">来编译该文件</span></code></pre></div>
 <p>新建use_plugin.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
 
