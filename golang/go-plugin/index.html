@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>golang 实现加载动态库 - Kaiying</title>
+  <meta property="og:title" content="golang 实现加载动态库 - Kaiying" />
+  <meta name="twitter:title" content="golang 实现加载动态库 - Kaiying" />
+  <meta name="description" content="第一篇文章">
+  <meta property="og:description" content="第一篇文章">
+  <meta name="twitter:description" content="第一篇文章">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/golang/go-plugin/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">golang 实现加载动态库</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>February 27, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/golang/">
+            <i class="fas fa-folder"></i>
+            golang
+          </a>&nbsp;
+        </li>
+        <li class="article-meta-tags">
+          <a href="/tags/go/">
+            <i class="fas fa-tag"></i>
+            go
+          </a>&nbsp;
+        </li>
+        <li class="article-meta-tags">
+          <a href="/tags/plugin/">
+            <i class="fas fa-tag"></i>
+            plugin
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  
+</aside>
+      <h3 id="简介">简介</h3>
+
+<p>golang开发中需要用到插件动态加载技术，需要主程序动态加载一些功能模块，不需要修改主程序。相比于java
+,java 可以通过加载class文件方式来实现模块加载，而golang通常都是单个二进制文件。
+go-plugin则使用另外一种方式实现插件加载，主进程和插件进程是两个独立的进程，二者通过rpc/grpc的方式进行通信，
+从而实现主进程调用插件进程。
+其次，golang也原生提供一种插件模块加载机制。</p>
+
+<h3 id="goplugin">go-plugin</h3>
+
+<p>项目地址<a href="https://github.com/hashicorp/go-plugin">https://github.com/hashicorp/go-plugin</a></p>
+
+<h4 id="特征">特征</h4>
+
+<ul>
+<li>插件是Go接口的实现：这让插件的编写、使用非常自然。对于插件的作者来说，他只需要实现一个Go接口即可；对于插件的用户来说，他只需要调用一个Go接口即可。go-plugin会处理好本地调用转换为gRPC调用的所有细节</li>
+<li>跨语言支持：插件可以基于任何主流语言编写，同样可以被任何主流语言消费</li>
+<li>支持复杂的参数、返回值：go-plugin可以处理接口、io.Reader/Writer等复杂类型</li>
+<li>双向通信：为了支持复杂参数，宿主进程能够将接口实现发送给插件，插件也能够回调到宿主进程</li>
+<li>内置日志系统：任何使用log标准库的的插件，都会将日志信息传回宿主机进程。宿主进程会在这些日志前面加上插件二进制文件的路径，并且打印日志</li>
+<li>协议版本化：支持一个简单的协议版本化，增加版本号后可以基于老版本协议的插件无效化。当接口签名变化时应当增加版本</li>
+<li>标准输出/错误同步：插件以子进程的方式运行，这些子进程可以自由的使用标准输出/错误，并且打印的内容会被自动同步到宿主进程，宿主进程可以为同步的日志指定一个io.Writer</li>
+<li>TTY Preservation：插件子进程可以链接到宿主进程的stdin文件描述符，以便要求TTY的软件能正常工作</li>
+<li>宿主进程升级：宿主进程升级的时候，插件子进程可以继续允许，并在升级后自动关联到新的宿主进程</li>
+<li>加密通信：gRPC信道可以加密</li>
+<li>完整性校验：支持对插件的二进制文件进行Checksum</li>
+<li>插件崩溃了，不会导致宿主进程崩溃</li>
+<li>容易安装：只需要将插件放到某个宿主进程能够访问的目录即可</li>
+</ul>
+
+<h4 id="架构">架构</h4>
+
+<h4 id="用法">用法</h4>
+
+<p>这里我们通过一个实例来体验一下go-plugin插件开发。我们需要完成的功能是，主程序暴露了两个方法，插件模块去实现这两个方法，然后主程序加载插件完成功能实现。
+最终达成的效果是通过Put方法设置一个key/value对，通过get方法获取key对应的值。</p>
+<pre><code>Put(key string, value []byte) error
+Get(key string) ([]byte, error) ([]byte, error)</code></pre>
+<h5 id="新建项目">新建项目</h5>
+
+<p>这里我先将完整项目目录结构列出来</p>
+<pre><code class="language-tree" data-lang="tree">.
+├── Makefile
+├── cmd
+│   ├── cmd
+│   ├── kv_wky
+│   └── main.go
+├── pkg
+│   ├── plugins
+│   │   └── proto
+│   │       ├── plugin.pb.go
+│   │       └── plugin.proto
+│   └── shared
+│       ├── grpc.go
+│       └── plugin.go
+└── pluginclient
+    ├── main.go
+    └── pluginclient</code></pre>
+<h5 id="定义proto">定义proto</h5>
+
+<p>新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-proto" data-lang="proto">syntax <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;proto3&#34;</span>;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#f92672">package</span> proto;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#66d9ef">message</span> <span style="color:#a6e22e">GetRequest</span> {<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">string</span> key <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>}<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#66d9ef">message</span> <span style="color:#a6e22e">GetResponse</span> {<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">bytes</span> value <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>}<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#66d9ef">message</span> <span style="color:#a6e22e">PutRequest</span> {<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">string</span> key <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">bytes</span> value <span style="color:#f92672">=</span> <span style="color:#ae81ff">2</span>;<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>}<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#66d9ef">message</span> <span style="color:#a6e22e">Empty</span> {}<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span><span style="color:#66d9ef">service</span> KV {<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">rpc</span> Get(GetRequest) <span style="color:#66d9ef">returns</span> (GetResponse);<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">rpc</span> Put(PutRequest) <span style="color:#66d9ef">returns</span> (Empty);<span style="color:#960050;background-color:#1e0010">
+</span><span style="color:#960050;background-color:#1e0010"></span>}</code></pre></div>
+<h5 id="定义对外暴露的插件接口">定义对外暴露的插件接口</h5>
+
+<p>新建pkg/shared/plugin.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">shared</span>
+<span style="color:#f92672">import</span> (
+	<span style="color:#e6db74">&#34;context&#34;</span>
+	<span style="color:#e6db74">&#34;goplugin-learn/pkg/plugins/proto&#34;</span>
+
+	<span style="color:#e6db74">&#34;github.com/hashicorp/go-plugin&#34;</span>
+	<span style="color:#e6db74">&#34;google.golang.org/grpc&#34;</span>
+)
+<span style="color:#75715e">/**
+</span><span style="color:#75715e">定义plugin和host对接的接口
+</span><span style="color:#75715e"> */</span>
+<span style="color:#75715e">//plugin和host握手协议
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Handshake</span> = <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">HandshakeConfig</span>{
+	<span style="color:#a6e22e">ProtocolVersion</span>: <span style="color:#ae81ff">1</span>,
+	<span style="color:#a6e22e">MagicCookieKey</span>: <span style="color:#e6db74">&#34;WKY_PLUGIN&#34;</span>,
+	<span style="color:#a6e22e">MagicCookieValue</span>: <span style="color:#e6db74">&#34;wukaiying&#34;</span>,
+}
+
+<span style="color:#75715e">// PluginMap is the map of plugins we can dispense.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">PluginMap</span> = <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Plugin</span>{
+	<span style="color:#e6db74">&#34;kv_grpc&#34;</span>: <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">KVGRPCPlugin</span>{},
+}
+
+<span style="color:#75715e">// KV is the interface that we&#39;re exposing as a plugin.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">KV</span> <span style="color:#66d9ef">interface</span> {
+	<span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">value</span> []<span style="color:#66d9ef">byte</span>) <span style="color:#66d9ef">error</span>
+	<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>) ([]<span style="color:#66d9ef">byte</span>, <span style="color:#66d9ef">error</span>)
+}
+<span style="color:#75715e">// This is the implementation of plugin.GRPCPlugin so we can serve/consume this.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">KVGRPCPlugin</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#75715e">// GRPCPlugin must still implement the Plugin interface
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Plugin</span>
+	<span style="color:#75715e">// Concrete implementation, written in Go. This is only used for plugins
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// that are written in Go.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">Impl</span> <span style="color:#a6e22e">KV</span>
+}
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">KVGRPCPlugin</span>) <span style="color:#a6e22e">GRPCServer</span>(<span style="color:#a6e22e">broker</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">GRPCBroker</span>, <span style="color:#a6e22e">s</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">grpc</span>.<span style="color:#a6e22e">Server</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">RegisterKVServer</span>(<span style="color:#a6e22e">s</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">GRPCServer</span>{<span style="color:#a6e22e">Impl</span>: <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">Impl</span>})
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">KVGRPCPlugin</span>) <span style="color:#a6e22e">GRPCClient</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">broker</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">GRPCBroker</span>, <span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">grpc</span>.<span style="color:#a6e22e">ClientConn</span>) (<span style="color:#66d9ef">interface</span>{}, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">GRPCClient</span>{<span style="color:#a6e22e">client</span>: <span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">NewKVClient</span>(<span style="color:#a6e22e">c</span>)}, <span style="color:#66d9ef">nil</span>
+}</code></pre></div>
+<h5 id="proto接口的server端实现和client端实现">proto接口的server端实现和client端实现</h5>
+
+<p>新建pkg/shared/grpc.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">shared</span>
+
+<span style="color:#f92672">import</span> (
+	<span style="color:#e6db74">&#34;goplugin-learn/pkg/plugins/proto&#34;</span>
+
+	<span style="color:#e6db74">&#34;golang.org/x/net/context&#34;</span>
+)
+<span style="color:#75715e">/**
+</span><span style="color:#75715e">这个文件中定义了gprc 对于Impl kv接口的server实现和client端实现
+</span><span style="color:#75715e"> */</span>
+<span style="color:#75715e">// GRPCClient is an implementation of KV that talks over RPC.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">GRPCClient</span> <span style="color:#66d9ef">struct</span>{ <span style="color:#a6e22e">client</span> <span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">KVClient</span> }
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">m</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">GRPCClient</span>) <span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">value</span> []<span style="color:#66d9ef">byte</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Background</span>(), <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">PutRequest</span>{
+		<span style="color:#a6e22e">Key</span>:   <span style="color:#a6e22e">key</span>,
+		<span style="color:#a6e22e">Value</span>: <span style="color:#a6e22e">value</span>,
+	})
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+}
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">m</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">GRPCClient</span>) <span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>) ([]<span style="color:#66d9ef">byte</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#a6e22e">resp</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Background</span>(), <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">GetRequest</span>{
+		<span style="color:#a6e22e">Key</span>: <span style="color:#a6e22e">key</span>,
+	})
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">resp</span>.<span style="color:#a6e22e">Value</span>, <span style="color:#66d9ef">nil</span>
+}
+<span style="color:#75715e">// Here is the gRPC server that GRPCClient talks to.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">GRPCServer</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#75715e">// This is the real implementation
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">Impl</span> <span style="color:#a6e22e">KV</span>
+}
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">m</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">GRPCServer</span>) <span style="color:#a6e22e">Put</span>(
+	<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>,
+	<span style="color:#a6e22e">req</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">PutRequest</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">Empty</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">Empty</span>{}, <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">Impl</span>.<span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">req</span>.<span style="color:#a6e22e">Key</span>, <span style="color:#a6e22e">req</span>.<span style="color:#a6e22e">Value</span>)
+}
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">m</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">GRPCServer</span>) <span style="color:#a6e22e">Get</span>(
+	<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>,
+	<span style="color:#a6e22e">req</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">GetRequest</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">GetResponse</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#a6e22e">v</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">Impl</span>.<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">req</span>.<span style="color:#a6e22e">Key</span>)
+	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">GetResponse</span>{<span style="color:#a6e22e">Value</span>: <span style="color:#a6e22e">v</span>}, <span style="color:#a6e22e">err</span>
+}</code></pre></div>
+<h5 id="主程序main实现">主程序main实现</h5>
+
+<p>新建cmd/main.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>()  {
+	<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">SetOutput</span>(<span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">Discard</span>)
+	<span style="color:#75715e">//we are host, launching the plugin process
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">client</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">NewClient</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ClientConfig</span>{
+		<span style="color:#a6e22e">HandshakeConfig</span>: <span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">Handshake</span>,
+		<span style="color:#a6e22e">Plugins</span>: <span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">PluginMap</span>,
+		<span style="color:#a6e22e">Cmd</span>: <span style="color:#a6e22e">exec</span>.<span style="color:#a6e22e">Command</span>(<span style="color:#e6db74">&#34;sh&#34;</span>, <span style="color:#e6db74">&#34;-c&#34;</span>, <span style="color:#e6db74">&#34;/Users/wukaiying/go/src/goplugin-learn/pluginclient/pluginclient&#34;</span>),
+		<span style="color:#a6e22e">AllowedProtocols</span>: []<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Protocol</span>{
+			<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ProtocolNetRPC</span>, <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ProtocolGRPC</span>,
+		},
+	})
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Kill</span>()
+
+	<span style="color:#a6e22e">rpcClient</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Client</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;Error&#34;</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+		<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+	}
+
+	<span style="color:#a6e22e">raw</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">rpcClient</span>.<span style="color:#a6e22e">Dispense</span>(<span style="color:#e6db74">&#34;kv_grpc&#34;</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;Error&#34;</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+		<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+	}
+
+	<span style="color:#a6e22e">kv</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">raw</span>.(<span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">KV</span>)
+	<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span> = <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">1</span>:]
+	<span style="color:#75715e">//os.Args = []string{&#34;put&#34;,&#34;wky&#34;, &#34;111&#34;}
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">0</span>] {
+	<span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#34;get&#34;</span>:
+		<span style="color:#a6e22e">result</span>,<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kv</span>.<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">1</span>])
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;Error&#34;</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+			<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+		}
+		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(string(<span style="color:#a6e22e">result</span>))
+	<span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#34;put&#34;</span>:
+		<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kv</span>.<span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">1</span>], []byte(<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">2</span>]))
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;Error&#34;</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+			<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+		}
+	<span style="color:#66d9ef">default</span>:
+		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Please only use &#39;get&#39; or &#39;put&#39;, given: %q&#34;</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Args</span>[<span style="color:#ae81ff">0</span>])
+		<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+	}
+	<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">0</span>)
+}</code></pre></div>
+<p>其中NewClient描述了和plugin端握手协议信息，加载哪个plguin，plugin二进制文件的位置，支持的协议等信息。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">client</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">NewClient</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ClientConfig</span>{
+		<span style="color:#a6e22e">HandshakeConfig</span>: <span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">Handshake</span>,
+		<span style="color:#a6e22e">Plugins</span>: <span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">PluginMap</span>,
+		<span style="color:#a6e22e">Cmd</span>: <span style="color:#a6e22e">exec</span>.<span style="color:#a6e22e">Command</span>(<span style="color:#e6db74">&#34;sh&#34;</span>, <span style="color:#e6db74">&#34;-c&#34;</span>, <span style="color:#e6db74">&#34;/Users/wukaiying/go/src/goplugin-learn/pluginclient/pluginclient&#34;</span>),
+		<span style="color:#a6e22e">AllowedProtocols</span>: []<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Protocol</span>{
+			<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ProtocolNetRPC</span>, <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ProtocolGRPC</span>,
+		},
+	})</code></pre></div>
+<p>最后完成Get,Put操作调用完成对plugin模块中方法的调用。</p>
+
+<h5 id="plugin模块端代码实现">plugin模块端代码实现</h5>
+
+<p>以上都是主程序端代码实现，而plugin模块则需单独开发，plugin模块的开发需要调用主程序端的一些文件。
+你可以将plugin模块和主程序放在同一个项目，也可单独新建项目开发，但是你需要在新项目将主程序作为包引入。
+本文示例将plugin模块和主程序放在同一个项目中，方便开发。
+主程序根目录下新建pluginclient/main.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+
+<span style="color:#f92672">import</span> (
+	<span style="color:#e6db74">&#34;fmt&#34;</span>
+	<span style="color:#e6db74">&#34;goplugin-learn/pkg/shared&#34;</span>
+	<span style="color:#e6db74">&#34;io/ioutil&#34;</span>
+
+	<span style="color:#e6db74">&#34;github.com/hashicorp/go-plugin&#34;</span>
+)
+
+<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">KV</span> <span style="color:#66d9ef">struct</span> {}
+
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">KV</span>) <span style="color:#a6e22e">Put</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">value</span> []<span style="color:#66d9ef">byte</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">value</span> = []byte(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%s\n\nWritten from plugin-go-grpc&#34;</span>, string(<span style="color:#a6e22e">value</span>)))
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">WriteFile</span>(<span style="color:#e6db74">&#34;kv_&#34;</span><span style="color:#f92672">+</span><span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">value</span>, <span style="color:#ae81ff">0644</span>)
+}
+
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">KV</span>) <span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>) ([]<span style="color:#66d9ef">byte</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">ReadFile</span>(<span style="color:#e6db74">&#34;kv_&#34;</span><span style="color:#f92672">+</span><span style="color:#a6e22e">key</span>)
+}
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>()  {
+	<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Serve</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">ServeConfig</span>{
+		<span style="color:#a6e22e">HandshakeConfig</span>: <span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">Handshake</span>,			<span style="color:#75715e">//需要引入host上面定义好的一些变量
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">Plugins</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Plugin</span>{
+			<span style="color:#e6db74">&#34;kv&#34;</span>: <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">shared</span>.<span style="color:#a6e22e">KVGRPCPlugin</span>{<span style="color:#a6e22e">Impl</span>: <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">KV</span>{}},
+		},
+		<span style="color:#a6e22e">GRPCServer</span>: <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">DefaultGRPCServer</span>,
+	})
+}</code></pre></div>
+<p>代码很简单，你需要具体实现Put和Get两个方法，同时编写与宿主机通信的协议信息。</p>
+
+<h5 id="验证">验证</h5>
+
+<p>完成编写后，先对plugin端进行编译生成二进制文件。然后将生成的二进制文件路径添加到主程序的ClientConfig-Cmd参数中(见上文)，再编译主程序，这样一个完整的插件开发就完成了。</p>
+
+<h3 id="go原生plugin">go原生plugin</h3>
+
+<p>Go 1.8版本开始提供了一个创建共享库的新工具,称为 Plugins.</p>
+
+<h4 id="生命周期">生命周期</h4>
+
+<p>plugin编译后的so文件是在主项目中被调用的，他和主项目mian的执行顺序如下：</p>
+
+<ul>
+<li>main.go的init函数先得到执行</li>
+<li>执行mian.go的 main函数</li>
+<li>执行plugin.open(“xxx.so”)打开plugin</li>
+<li>执行plugin文件中的Init函数</li>
+<li>最后执行plugin中的被调用的函数或者变量</li>
+</ul>
+
+<h4 id="应用场景">应用场景</h4>
+
+<ul>
+<li>使用plugin完成可插拔式的模块替换和加载，类似于velero中用户可以替换对象存储plugin模块，更换成自己的对象存储</li>
+<li>后门程序</li>
+<li>针对不同的语言环境或者场景加载不同的模块</li>
+</ul>
+
+<h4 id="用法-1">用法</h4>
+
+<h5 id="示例一">示例一</h5>
+
+<p>新建plugin.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+
+<span style="color:#f92672">import</span> <span style="color:#e6db74">&#34;fmt&#34;</span>
+
+<span style="color:#75715e">/**
+</span><span style="color:#75715e">方法和变量的名字都是要首字母大写，小写会导致调用失败
+</span><span style="color:#75715e"> */</span>
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Hello</span>()  {
+   <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;hello from plugin.go&#34;</span>)
+}
+<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Name</span> = <span style="color:#e6db74">&#34;name from plugin.go&#34;</span></code></pre></div>
+<p>编译plugin.go
+```shell script
+go build --buildmode=plugin -o plugin.so plugin.go</p>
+<pre><code>新建use_plugin.go
+```go
+package main
+
+import (
+   "fmt"
+   "os"
+   "plugin"
+)
+
+func main()  {
+   p, err := plugin.Open("./plugin.so")
+   if err != nil {
+      fmt.Println(err)
+      os.Exit(1)
+   }
+
+   //获取plugin.go中的Hello方法
+   symbol,err := p.Lookup("Hello")
+   if err != nil {
+      fmt.Println(err)
+      os.Exit(1)
+   }
+
+   //判断symbol类型是不是func()类型
+   hello, ok := symbol.(func())
+   if !ok {
+      fmt.Println(err)
+      os.Exit(1)
+   }
+    //执行plugin中的方法
+   hello()
+
+   //获取plugin.go中的变量的值
+   //symbol, err = p.Lookup("Name")
+   //if err != nil {
+   // fmt.Println(err)
+   // os.Exit(1)
+   //}
+   //
+   //name, ok := symbol.(string)
+   //if !ok{
+   // fmt.Println(err)
+   // os.Exit(1)
+   //}
+   //fmt.Println(name)
+}</code></pre>
+<p>编译main.go
+```shell script
+go build use_plugin.go</p>
+<pre><code>示例二
+```go
+#plugin.go
+package main
+
+import (
+   "log"
+   "os/exec"
+   "time"
+)
+
+func init() {
+   log.Println("plugin init function called")
+}
+
+type BadNastyDoctor string
+
+func (g BadNastyDoctor) HealthCheck() error {
+   bs, err := exec.Command("bash", "-c", "echo 'test'").CombinedOutput()
+   if err != nil {
+      return err
+   }
+   log.Println("now is ",g)
+   log.Println("shell has exected ->>>>>", string(bs))
+   return nil
+}
+
+//相当于new了一个BadNastyDoctor对象
+var Doctor = BadNastyDoctor(time.Now().Format(time.RFC3339))
+
+//可以这样访问Doctor的方法
+//func test()  {
+// Doctor.HealthCheck()
+//}
+
+//使用 go build -buildmode=plugin -o=plugin.so plugin.go 来编译该文件
+
+#use_plugin.go
+package main
+
+import (
+   "fmt"
+   "log"
+   "os"
+   "plugin"
+)
+
+type GoodDoctor interface {
+   HealthCheck() error
+}
+
+func init() {
+   log.Println("main int function called")
+}
+
+func main() {
+   log.Println("main function called")
+
+   //1.open so file load the symbos
+   plugin, err := plugin.Open("./plugin.so")
+   if err != nil {
+      fmt.Println(err)
+      os.Exit(1)
+   }
+   log.Println("plugin opened")
+
+   //2.look up a symbol (an expected function or vairable)
+   //这个测试用例中，我们来加载plugin中的Doctor对象
+   doc, err := plugin.Lookup("Doctor")
+   if err != nil {
+      fmt.Println(err)
+      os.Exit(1)
+   }
+   log.Print("read plugin variable Doctor")
+
+   //3.判断从plugin中读到的对象，是不是GoodDoctor类型，plugin 中Doctor对象实现了
+   //HealthCheck方法，所以应该是同一个类型
+   doctor, ok := doc.(GoodDoctor)
+   if !ok {
+      fmt.Println("unexpected type from module symbol")
+      os.Exit(1)
+   }
+
+   //4.使用plugin中的方法
+   if err := doctor.HealthCheck(); err != nil {
+      log.Println("use plugin doctor failed,", err)
+   }
+}
+
+/**
+由此我们可以看到golang plugin的用法，主程序如果想暴露plugin，就需要暴露一个接口，
+本实例中接口为
+type GoodDoctor interface {
+   HealthCheck() error
+}
+在plugin go文件中，我们可以定义一个结构体，来实现HealthCheck()这个接口。
+
+这样我们就可以使用plugin组件来读取plugin go文件中的Doctor对象和使用Doctor对象中的
+HealthCheck()方法了
+ */</code></pre>
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older pager-noitem">Older &gt;</li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
