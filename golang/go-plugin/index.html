@@ -72,19 +72,17 @@
 <aside class="toc">
   
 </aside>
-      <h3 id="简介">简介</h3>
-
-<p>golang开发中需要用到插件动态加载技术，需要主程序动态加载一些功能模块，不需要修改主程序。相比于java
+      <p>golang开发中需要用到插件动态加载技术，需要主程序动态加载一些功能模块，不需要修改主程序。相比于java
 ,java 可以通过加载class文件方式来实现模块加载，而golang通常都是单个二进制文件。
 go-plugin则使用另外一种方式实现插件加载，主进程和插件进程是两个独立的进程，二者通过rpc/grpc的方式进行通信，
 从而实现主进程调用插件进程。
-其次，golang也原生提供一种插件模块加载机制。</p>
+其次，golang也原生提供一种插件模块加载机制plugins。</p>
 
-<h3 id="goplugin">go-plugin</h3>
+<h2 id="goplugin">go-plugin</h2>
 
 <p>项目地址<a href="https://github.com/hashicorp/go-plugin">https://github.com/hashicorp/go-plugin</a></p>
 
-<h4 id="特征">特征</h4>
+<h3 id="特征">特征</h3>
 
 <ul>
 <li>插件是Go接口的实现：这让插件的编写、使用非常自然。对于插件的作者来说，他只需要实现一个Go接口即可；对于插件的用户来说，他只需要调用一个Go接口即可。go-plugin会处理好本地调用转换为gRPC调用的所有细节</li>
@@ -102,15 +100,13 @@ go-plugin则使用另外一种方式实现插件加载，主进程和插件进�
 <li>容易安装：只需要将插件放到某个宿主进程能够访问的目录即可</li>
 </ul>
 
-<h4 id="架构">架构</h4>
-
-<h4 id="用法">用法</h4>
+<h3 id="用法">用法</h3>
 
 <p>这里我们通过一个实例来体验一下go-plugin插件开发。我们需要完成的功能是，主程序暴露了两个方法，插件模块去实现这两个方法，然后主程序加载插件完成功能实现。
 最终达成的效果是通过Put方法设置一个key/value对，通过get方法获取key对应的值。</p>
 <pre><code>Put(key string, value []byte) error
 Get(key string) ([]byte, error) ([]byte, error)</code></pre>
-<h5 id="新建项目">新建项目</h5>
+<h4 id="新建项目">新建项目</h4>
 
 <p>这里我先将完整项目目录结构列出来</p>
 <pre><code class="language-tree" data-lang="tree">.
@@ -130,7 +126,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 └── pluginclient
     ├── main.go
     └── pluginclient</code></pre>
-<h5 id="定义proto">定义proto</h5>
+<h4 id="定义proto">定义proto</h4>
 
 <p>新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-proto" data-lang="proto">syntax <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;proto3&#34;</span>;<span style="color:#960050;background-color:#1e0010">
@@ -150,7 +146,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 </span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">rpc</span> Get(GetRequest) <span style="color:#66d9ef">returns</span> (GetResponse);<span style="color:#960050;background-color:#1e0010">
 </span><span style="color:#960050;background-color:#1e0010"></span>    <span style="color:#66d9ef">rpc</span> Put(PutRequest) <span style="color:#66d9ef">returns</span> (Empty);<span style="color:#960050;background-color:#1e0010">
 </span><span style="color:#960050;background-color:#1e0010"></span>}</code></pre></div>
-<h5 id="定义对外暴露的插件接口">定义对外暴露的插件接口</h5>
+<h4 id="定义对外暴露的插件接口">定义对外暴露的插件接口</h4>
 
 <p>新建pkg/shared/plugin.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">shared</span>
@@ -196,7 +192,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 <span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">KVGRPCPlugin</span>) <span style="color:#a6e22e">GRPCClient</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">broker</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">GRPCBroker</span>, <span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">grpc</span>.<span style="color:#a6e22e">ClientConn</span>) (<span style="color:#66d9ef">interface</span>{}, <span style="color:#66d9ef">error</span>) {
 	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">GRPCClient</span>{<span style="color:#a6e22e">client</span>: <span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">NewKVClient</span>(<span style="color:#a6e22e">c</span>)}, <span style="color:#66d9ef">nil</span>
 }</code></pre></div>
-<h5 id="proto接口的server端实现和client端实现">proto接口的server端实现和client端实现</h5>
+<h4 id="proto接口的server端实现和client端实现">proto接口的server端实现和client端实现</h4>
 
 <p>新建pkg/shared/grpc.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">shared</span>
@@ -243,7 +239,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 	<span style="color:#a6e22e">v</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">Impl</span>.<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">req</span>.<span style="color:#a6e22e">Key</span>)
 	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">proto</span>.<span style="color:#a6e22e">GetResponse</span>{<span style="color:#a6e22e">Value</span>: <span style="color:#a6e22e">v</span>}, <span style="color:#a6e22e">err</span>
 }</code></pre></div>
-<h5 id="主程序main实现">主程序main实现</h5>
+<h4 id="主程序main实现">主程序main实现</h4>
 
 <p>新建cmd/main.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>()  {
@@ -305,7 +301,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 	})</code></pre></div>
 <p>最后完成Get,Put操作调用完成对plugin模块中方法的调用。</p>
 
-<h5 id="plugin模块端代码实现">plugin模块端代码实现</h5>
+<h4 id="plugin模块端代码实现">plugin模块端代码实现</h4>
 
 <p>以上都是主程序端代码实现，而plugin模块则需单独开发，plugin模块的开发需要调用主程序端的一些文件。
 你可以将plugin模块和主程序放在同一个项目，也可单独新建项目开发，但是你需要在新项目将主程序作为包引入。
@@ -343,15 +339,15 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 }</code></pre></div>
 <p>代码很简单，你需要具体实现Put和Get两个方法，同时编写与宿主机通信的协议信息。</p>
 
-<h5 id="验证">验证</h5>
+<h4 id="验证">验证</h4>
 
 <p>完成编写后，先对plugin端进行编译生成二进制文件。然后将生成的二进制文件路径添加到主程序的ClientConfig-Cmd参数中(见上文)，再编译主程序，这样一个完整的插件开发就完成了。</p>
 
-<h3 id="go原生plugin">go原生plugin</h3>
+<h2 id="go原生plugins">go原生plugins</h2>
 
-<p>Go 1.8版本开始提供了一个创建共享库的新工具,称为 Plugins.</p>
+<p>Go 1.8版本开始提供了一个创建共享库的新工具,称为Plugins.</p>
 
-<h4 id="生命周期">生命周期</h4>
+<h3 id="生命周期">生命周期</h3>
 
 <p>plugin编译后的so文件是在主项目中被调用的，他和主项目mian的执行顺序如下：</p>
 
@@ -363,7 +359,7 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 <li>最后执行plugin中的被调用的函数或者变量</li>
 </ul>
 
-<h4 id="应用场景">应用场景</h4>
+<h3 id="应用场景">应用场景</h3>
 
 <ul>
 <li>使用plugin完成可插拔式的模块替换和加载，类似于velero中用户可以替换对象存储plugin模块，更换成自己的对象存储</li>
@@ -371,9 +367,9 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 <li>针对不同的语言环境或者场景加载不同的模块</li>
 </ul>
 
-<h4 id="用法-1">用法</h4>
+<h3 id="用法-1">用法</h3>
 
-<h5 id="示例一">示例一</h5>
+<h4 id="示例一">示例一</h4>
 
 <p>新建plugin.go</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
@@ -387,10 +383,12 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;hello from plugin.go&#34;</span>)
 }
 <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Name</span> = <span style="color:#e6db74">&#34;name from plugin.go&#34;</span></code></pre></div>
-<p>编译plugin.go
-```shell script
+<p>编译plugin.go</p>
+
+<p>```shell script
 go build --buildmode=plugin -o plugin.so plugin.go</p>
 <pre><code>新建use_plugin.go
+
 ```go
 package main
 
@@ -437,12 +435,14 @@ func main()  {
    //}
    //fmt.Println(name)
 }</code></pre>
-<p>编译main.go
-```shell script
+<p>编译main.go</p>
+
+<p>```shell script
 go build use_plugin.go</p>
-<pre><code>示例二
+<pre><code>#### 示例二
+新建#plugin.go
+
 ```go
-#plugin.go
 package main
 
 import (
@@ -475,71 +475,70 @@ var Doctor = BadNastyDoctor(time.Now().Format(time.RFC3339))
 // Doctor.HealthCheck()
 //}
 
-//使用 go build -buildmode=plugin -o=plugin.so plugin.go 来编译该文件
+//使用 go build -buildmode=plugin -o=plugin.so plugin.go 来编译该文件</code></pre>
+<p>新建use_plugin.go</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
 
-#use_plugin.go
-package main
-
-import (
-   "fmt"
-   "log"
-   "os"
-   "plugin"
+<span style="color:#f92672">import</span> (
+   <span style="color:#e6db74">&#34;fmt&#34;</span>
+   <span style="color:#e6db74">&#34;log&#34;</span>
+   <span style="color:#e6db74">&#34;os&#34;</span>
+   <span style="color:#e6db74">&#34;plugin&#34;</span>
 )
 
-type GoodDoctor interface {
-   HealthCheck() error
+<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">GoodDoctor</span> <span style="color:#66d9ef">interface</span> {
+   <span style="color:#a6e22e">HealthCheck</span>() <span style="color:#66d9ef">error</span>
 }
 
-func init() {
-   log.Println("main int function called")
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">init</span>() {
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;main int function called&#34;</span>)
 }
 
-func main() {
-   log.Println("main function called")
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;main function called&#34;</span>)
 
-   //1.open so file load the symbos
-   plugin, err := plugin.Open("./plugin.so")
-   if err != nil {
-      fmt.Println(err)
-      os.Exit(1)
+   <span style="color:#75715e">//1.open so file load the symbos
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">plugin</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Open</span>(<span style="color:#e6db74">&#34;./plugin.so&#34;</span>)
+   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">err</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
-   log.Println("plugin opened")
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;plugin opened&#34;</span>)
 
-   //2.look up a symbol (an expected function or vairable)
-   //这个测试用例中，我们来加载plugin中的Doctor对象
-   doc, err := plugin.Lookup("Doctor")
-   if err != nil {
-      fmt.Println(err)
-      os.Exit(1)
+   <span style="color:#75715e">//2.look up a symbol (an expected function or vairable)
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//这个测试用例中，我们来加载plugin中的Doctor对象
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">plugin</span>.<span style="color:#a6e22e">Lookup</span>(<span style="color:#e6db74">&#34;Doctor&#34;</span>)
+   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">err</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
-   log.Print("read plugin variable Doctor")
+   <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Print</span>(<span style="color:#e6db74">&#34;read plugin variable Doctor&#34;</span>)
 
-   //3.判断从plugin中读到的对象，是不是GoodDoctor类型，plugin 中Doctor对象实现了
-   //HealthCheck方法，所以应该是同一个类型
-   doctor, ok := doc.(GoodDoctor)
-   if !ok {
-      fmt.Println("unexpected type from module symbol")
-      os.Exit(1)
+   <span style="color:#75715e">//3.判断从plugin中读到的对象，是不是GoodDoctor类型，plugin 中Doctor对象实现了
+</span><span style="color:#75715e"></span>   <span style="color:#75715e">//HealthCheck方法，所以应该是同一个类型
+</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">doctor</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">doc</span>.(<span style="color:#a6e22e">GoodDoctor</span>)
+   <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+      <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unexpected type from module symbol&#34;</span>)
+      <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
    }
 
-   //4.使用plugin中的方法
-   if err := doctor.HealthCheck(); err != nil {
-      log.Println("use plugin doctor failed,", err)
+   <span style="color:#75715e">//4.使用plugin中的方法
+</span><span style="color:#75715e"></span>   <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">doctor</span>.<span style="color:#a6e22e">HealthCheck</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+      <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;use plugin doctor failed,&#34;</span>, <span style="color:#a6e22e">err</span>)
    }
 }
 
-/**
-由此我们可以看到golang plugin的用法，主程序如果想暴露plugin，就需要暴露一个接口，
-本实例中接口为
-type GoodDoctor interface {
-   HealthCheck() error
-}
-在plugin go文件中，我们可以定义一个结构体，来实现HealthCheck()这个接口。
-
-这样我们就可以使用plugin组件来读取plugin go文件中的Doctor对象和使用Doctor对象中的
-HealthCheck()方法了
- */</code></pre>
+<span style="color:#75715e">/**
+</span><span style="color:#75715e">由此我们可以看到golang plugin的用法，主程序如果想暴露plugin，就需要暴露一个接口，
+</span><span style="color:#75715e">本实例中接口为
+</span><span style="color:#75715e">type GoodDoctor interface {
+</span><span style="color:#75715e">   HealthCheck() error
+</span><span style="color:#75715e">}
+</span><span style="color:#75715e">在plugin go文件中，我们可以定义一个结构体，来实现HealthCheck()这个接口。
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">这样我们就可以使用plugin组件来读取plugin go文件中的Doctor对象和使用Doctor对象中的
+</span><span style="color:#75715e">HealthCheck()方法了
+</span><span style="color:#75715e"> */</span></code></pre></div>
     </article>
 
     
