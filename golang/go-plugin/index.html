@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
-  <title>golang 实现加载动态库 - Kaiying</title>
-  <meta property="og:title" content="golang 实现加载动态库 - Kaiying" />
-  <meta name="twitter:title" content="golang 实现加载动态库 - Kaiying" />
+  <title>手摸手-golang 实现加载动态库 - Kaiying</title>
+  <meta property="og:title" content="手摸手-golang 实现加载动态库 - Kaiying" />
+  <meta name="twitter:title" content="手摸手-golang 实现加载动态库 - Kaiying" />
   <meta name="description" content="第一篇文章">
   <meta property="og:description" content="第一篇文章">
   <meta name="twitter:description" content="第一篇文章">
@@ -44,7 +44,7 @@
     <article class="article">
       
       
-      <h1 class="article-title">golang 实现加载动态库</h1>
+      <h1 class="article-title">手摸手-golang 实现加载动态库</h1>
       
       <hr class="article-title-bottom">
       <ul class="article-meta">
@@ -343,6 +343,8 @@ Get(key string) ([]byte, error) ([]byte, error)</code></pre>
 <h4 id="验证">验证</h4>
 
 <p>完成编写后，先对plugin端进行编译生成二进制文件。然后将生成的二进制文件路径添加到主程序的ClientConfig-Cmd参数中(见上文)，再编译主程序，这样一个完整的插件开发就完成了。</p>
+
+<p>完整项目地址：<a href="https://github.com/wukaiying/goplugin-learn">https://github.com/wukaiying/goplugin-learn</a></p>
 
 <h2 id="go原生plugins">go原生plugins</h2>
 
