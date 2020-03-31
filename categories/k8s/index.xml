@@ -7,10 +7,23 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Tue, 11 Feb 2020 10:01:25 +0800</lastBuildDate>
+    <lastBuildDate>Tue, 31 Mar 2020 17:26:43 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/categories/k8s/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>CoreDNS生产案：pod出现dns解析大量失败的问题</title>
+      <link>https://wukaiying.github.io/k8s/dns-problem/</link>
+      <pubDate>Tue, 31 Mar 2020 17:26:43 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/dns-problem/</guid>
+      <description>问题 收到阿里云K8S集群监控告警：
+CoreDNS 5分钟内NXDOMAIN响应百分比大于50% k8s.coredns.response[aliyun,172.22.82.25:9153,NXDOMAIN]
+是coredns的172.22.82.25的这个pod出现dns解析大量失败的问题。（解析成功的日志是NOERROR，解析失败是：NXDMAIN）
+分析 首先是查看这个coredns pod的日志：
+[root@iZbp16er8wkobo2a165ekzZ ~]# kubectl get pods -n kube-system -o wide | grep coredns |grep 172.22.82.25 coredns-57dc86754b-9schh 1/1 Running 0 17d 172.22.82.25 cn-hangzhou.xxx.xxx.xxx.xxx &amp;lt;none&amp;gt;[root@iZbp16er8wkobo2a165ekzZ ~]# kubectl logs -n kube-system coredns-57dc86754b-9schh | tail -10 2020-03-05T13:06:29.745Z [INFO] 172.22.0.66:54106 - 24311 &amp;quot;A IN metrics.cn-hangzhou.aliyuncs.com. udp 50 false 512&amp;quot; NOERROR qr,rd,ra 190 0.00003395s 2020-03-05T13:06:29.745Z [INFO] 172.22.0.66:56730 - 20278 &amp;quot;AAAA IN metrics.cn-hangzhou.aliyuncs.com. udp 50 false 512&amp;quot; NOERROR qr,rd,ra 232 0.000072002s 2020-03-05T13:06:29.748Z [INFO] 172.22.0.66:41047 - 53211 &amp;quot;AAAA IN metrics.cn-hangzhou.aliyuncs.com.kube-system.svc.cluster.local. udp 80 false 512&amp;quot; NXDOMAIN qr,rd,ra 173 0.00004196s 2020-03-05T13:06:29.748Z [INFO] 172.22.0.66:40581 - 40714 &amp;quot;A IN metrics.cn-hangzhou.aliyuncs.com.kube-system.svc.cluster.local. udp 80 false 512&amp;quot; NXDOMAIN qr,rd,ra 173 0.</description>
+    </item>
     
     <item>
       <title>Kubernetes中leaderelection实现组件高可用</title>
