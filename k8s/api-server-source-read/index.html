@@ -147,64 +147,64 @@ openstack提供的认证和授权方案，适合采用openstack体系搭建k8s�
 <p>匿名请求
 当开启匿名请求时，所有没有被拒绝的请求都被认为是匿名请求，在授权阶段，这些请求都被统一处理</p>
 <p>源码分析：</p>
-<pre><code>pkg/kubeapiserver/authenticator/config.go
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">pkg/kubeapiserver/authenticator/config.go
 
-# 根据传入认证方式信息来生成 authenticators，然后将用户信息提取进行校验
-func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, error) {
-	var authenticators []authenticator.Request
+<span style="color:#75715e"># 根据传入认证方式信息来生成 authenticators，然后将用户信息提取进行校验</span>
+func <span style="color:#f92672">(</span>config Config<span style="color:#f92672">)</span> New<span style="color:#f92672">(</span><span style="color:#f92672">)</span> <span style="color:#f92672">(</span>authenticator.Request, *spec.SecurityDefinitions, error<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+	var authenticators <span style="color:#f92672">[</span><span style="color:#f92672">]</span>authenticator.Request
     // basic auth
-	if len(config.BasicAuthFile) &gt; 0 {
-		basicAuth, err := newAuthenticatorFromBasicAuthFile(config.BasicAuthFile)
-		if err != nil {
-			return nil, nil, err
-		}
-		authenticators = append(authenticators, authenticator.WrapAudienceAgnosticRequest(config.APIAudiences, basicAuth))
+	<span style="color:#66d9ef">if</span> len<span style="color:#f92672">(</span>config.BasicAuthFile<span style="color:#f92672">)</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">{</span>
+		basicAuth, err :<span style="color:#f92672">=</span> newAuthenticatorFromBasicAuthFile<span style="color:#f92672">(</span>config.BasicAuthFile<span style="color:#f92672">)</span>
+		<span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+			<span style="color:#66d9ef">return</span> nil, nil, err
+		<span style="color:#f92672">}</span>
+		authenticators <span style="color:#f92672">=</span> append<span style="color:#f92672">(</span>authenticators, authenticator.WrapAudienceAgnosticRequest<span style="color:#f92672">(</span>config.APIAudiences, basicAuth<span style="color:#f92672">)</span><span style="color:#f92672">)</span>
 
-		securityDefinitions[&quot;HTTPBasic&quot;] = &amp;spec.SecurityScheme{
-			SecuritySchemeProps: spec.SecuritySchemeProps{
-				Type:        &quot;basic&quot;,
-				Description: &quot;HTTP Basic authentication&quot;,
-			},
-		}
-	}
+		securityDefinitions<span style="color:#f92672">[</span><span style="color:#e6db74">&#34;HTTPBasic&#34;</span><span style="color:#f92672">]</span> <span style="color:#f92672">=</span> &amp;spec.SecurityScheme<span style="color:#f92672">{</span>
+			SecuritySchemeProps: spec.SecuritySchemeProps<span style="color:#f92672">{</span>
+				Type:        <span style="color:#e6db74">&#34;basic&#34;</span>,
+				Description: <span style="color:#e6db74">&#34;HTTP Basic authentication&#34;</span>,
+			<span style="color:#f92672">}</span>,
+		<span style="color:#f92672">}</span>
+	<span style="color:#f92672">}</span>
 
 	// X509 methods
-	if len(config.ClientCAFile) &gt; 0 {
-		certAuth, err := newAuthenticatorFromClientCAFile(config.ClientCAFile)
-		if err != nil {
-			return nil, nil, err
-		}
-		authenticators = append(authenticators, certAuth)
-	}
+	<span style="color:#66d9ef">if</span> len<span style="color:#f92672">(</span>config.ClientCAFile<span style="color:#f92672">)</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">{</span>
+		certAuth, err :<span style="color:#f92672">=</span> newAuthenticatorFromClientCAFile<span style="color:#f92672">(</span>config.ClientCAFile<span style="color:#f92672">)</span>
+		<span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+			<span style="color:#66d9ef">return</span> nil, nil, err
+		<span style="color:#f92672">}</span>
+		authenticators <span style="color:#f92672">=</span> append<span style="color:#f92672">(</span>authenticators, certAuth<span style="color:#f92672">)</span>
+	<span style="color:#f92672">}</span>
 
-	// Bearer token methods, local first, then remote
-	if len(config.TokenAuthFile) &gt; 0 {
-		tokenAuth, err := newAuthenticatorFromTokenFile(config.TokenAuthFile)
-		if err != nil {
-			return nil, nil, err
-		}
-		tokenAuthenticators = append(tokenAuthenticators, authenticator.WrapAudienceAgnosticToken(config.APIAudiences, tokenAuth))
-	}
-	if len(config.ServiceAccountKeyFiles) &gt; 0 {
-		serviceAccountAuth, err := newLegacyServiceAccountAuthenticator(config.ServiceAccountKeyFiles, config.ServiceAccountLookup, config.APIAudiences, config.ServiceAccountTokenGetter)
-		if err != nil {
-			return nil, nil, err
-		}
-		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
-	}
+	// Bearer token methods, local first, <span style="color:#66d9ef">then</span> remote
+	<span style="color:#66d9ef">if</span> len<span style="color:#f92672">(</span>config.TokenAuthFile<span style="color:#f92672">)</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">{</span>
+		tokenAuth, err :<span style="color:#f92672">=</span> newAuthenticatorFromTokenFile<span style="color:#f92672">(</span>config.TokenAuthFile<span style="color:#f92672">)</span>
+		<span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+			<span style="color:#66d9ef">return</span> nil, nil, err
+		<span style="color:#f92672">}</span>
+		tokenAuthenticators <span style="color:#f92672">=</span> append<span style="color:#f92672">(</span>tokenAuthenticators, authenticator.WrapAudienceAgnosticToken<span style="color:#f92672">(</span>config.APIAudiences, tokenAuth<span style="color:#f92672">)</span><span style="color:#f92672">)</span>
+	<span style="color:#f92672">}</span>
+	<span style="color:#66d9ef">if</span> len<span style="color:#f92672">(</span>config.ServiceAccountKeyFiles<span style="color:#f92672">)</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">{</span>
+		serviceAccountAuth, err :<span style="color:#f92672">=</span> newLegacyServiceAccountAuthenticator<span style="color:#f92672">(</span>config.ServiceAccountKeyFiles, config.ServiceAccountLookup, config.APIAudiences, config.ServiceAccountTokenGetter<span style="color:#f92672">)</span>
+		<span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+			<span style="color:#66d9ef">return</span> nil, nil, err
+		<span style="color:#f92672">}</span>
+		tokenAuthenticators <span style="color:#f92672">=</span> append<span style="color:#f92672">(</span>tokenAuthenticators, serviceAccountAuth<span style="color:#f92672">)</span>
+	<span style="color:#f92672">}</span>
 
-    fmt.Println(&quot;the length of authticator:&quot;, len(authenticators))
-    switch len(authenticators) {
-    case 0:
-        return nil, nil
-    case 1:
-        return authenticators[0], nil
+    fmt.Println<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;the length of authticator:&#34;</span>, len<span style="color:#f92672">(</span>authenticators<span style="color:#f92672">)</span><span style="color:#f92672">)</span>
+    switch len<span style="color:#f92672">(</span>authenticators<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+    <span style="color:#66d9ef">case</span> 0:
+        <span style="color:#66d9ef">return</span> nil, nil
+    <span style="color:#66d9ef">case</span> 1:
+        <span style="color:#66d9ef">return</span> authenticators<span style="color:#f92672">[</span>0<span style="color:#f92672">]</span>, nil
     default:
-        return union.New(authenticators...), nil
-    }
+        <span style="color:#66d9ef">return</span> union.New<span style="color:#f92672">(</span>authenticators...<span style="color:#f92672">)</span>, nil
+    <span style="color:#f92672">}</span>
 
-}
-</code></pre><h4 id="22-authorization-">2.2 Authorization 资源对象访问权限</h4>
+<span style="color:#f92672">}</span>
+</code></pre></div><h4 id="22-authorization-">2.2 Authorization 资源对象访问权限</h4>
 <p>通过api server用户认证的请求，接下来会进行资源访问权限认证，授予不同用户不同的资源访问权限。
 通过&ndash;authorization-mode来设置，可以看到默认为Node，RBAC模式</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml
@@ -250,34 +250,34 @@ ABAC 配置需要两步第一步在api server启动参数中设置<code>--author
 <p>启用该模式进行授权认证，k8s会调用外部rest服务来进行授权。webhook 配置需要两步第一步在api server启动参数中设置<code>--authorization-mode=Webhook</code>，然后使用参数<code>--authorization-webhook-config-file=SOME_FILENAME</code>来设置远端授权服务的信息。
 启用该模式后api server 相当于客户端，而外部rest server相当于服务端。</p>
 <p>webhook配置文件样例：</p>
-<pre><code># Kubernetes API version
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#75715e"># Kubernetes API version</span>
 apiVersion: v1
-# kind of the API object
+<span style="color:#75715e"># kind of the API object</span>
 kind: Config
-# 远端webhook service访问地址及证书.
+<span style="color:#75715e"># 远端webhook service访问地址及证书.</span>
 clusters:
   - name: name-of-remote-authz-service
     cluster:
-      # CA for verifying the remote service.
+      <span style="color:#75715e"># CA for verifying the remote service.</span>
       certificate-authority: /path/to/ca.pem
-      # URL of remote service to query. Must use 'https'. May not include parameters.
+      <span style="color:#75715e"># URL of remote service to query. Must use &#39;https&#39;. May not include parameters.</span>
       server: https://authz.example.com/authorize
 
-# users refers to the API Server's webhook configuration.
+<span style="color:#75715e"># users refers to the API Server&#39;s webhook configuration.</span>
 users:
   - name: name-of-api-server
     user:
-      client-certificate: /path/to/cert.pem # cert for the webhook plugin to use
-      client-key: /path/to/key.pem          # key matching the cert
+      client-certificate: /path/to/cert.pem <span style="color:#75715e"># cert for the webhook plugin to use</span>
+      client-key: /path/to/key.pem          <span style="color:#75715e"># key matching the cert</span>
 
-# kubeconfig files require a context. Provide one for the API Server.
+<span style="color:#75715e"># kubeconfig files require a context. Provide one for the API Server.</span>
 current-context: webhook
 contexts:
 - context:
     cluster: name-of-remote-authz-service
     user: name-of-api-server
   name: webhook
-</code></pre><p>假设bob想要访问某个namespace下的pod, 在授权开始时，API Server会生成一个api.authorization.v1beta1.SubjectAccessReview对象，用于描述操作信息</p>
+</code></pre></div><p>假设bob想要访问某个namespace下的pod, 在授权开始时，API Server会生成一个api.authorization.v1beta1.SubjectAccessReview对象，用于描述操作信息</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{
   <span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;authorization.k8s.io/v1beta1&#34;</span>,
   <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;SubjectAccessReview&#34;</span>,
