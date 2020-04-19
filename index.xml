@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Tue, 31 Mar 2020 17:26:43 +0800</lastBuildDate>
+    <lastBuildDate>Mon, 13 Apr 2020 20:31:49 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/index.xml" rel="self" type="application/rss+xml" />
     
@@ -25,6 +25,34 @@ go-plugin 项目地址https://github.com/hashicorp/go-plugin
 Put(key string, value []byte) error Get(key string) ([]byte, error) ([]byte, error) 新建项目 这里我先将完整项目目录结构列出来
 . ├── Makefile ├── cmd │ ├── cmd │ ├── kv_wky │ └── main.go ├── pkg │ ├── plugins │ │ └── proto │ │ ├── plugin.pb.go │ │ └── plugin.proto │ └── shared │ ├── grpc.go │ └── plugin.go └── pluginclient ├── main.go └── pluginclient 定义proto 新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go
 syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key = 1;}message GetResponse { bytes value = 1;}message PutRequest { string key = 1; bytes value = 2;}message Empty {}service KV { rpc Get(GetRequest) returns (GetResponse); rpc Put(PutRequest) returns (Empty);} 定义对外暴露的插件接口 新建pkg/shared/plugin.</description>
+    </item>
+    
+    <item>
+      <title>K8S Api Server 源码分析</title>
+      <link>https://wukaiying.github.io/k8s/api-server-source-read/</link>
+      <pubDate>Mon, 13 Apr 2020 20:31:49 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/api-server-source-read/</guid>
+      <description>kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。
+Api Server架构 api server 架构从上到下可以分为以下几层： 1.Api层，主要包含三种api core api: 主要在/api/v1下
+分组api: 其path为/apis/$NAME/$VERSION
+暴露系统状态的api: 如/metrics,/healthz,/logs,/openapi等
+$ curl -k https://127.0.0.1:56521 { &amp;#34;paths&amp;#34;: [ &amp;#34;/api&amp;#34;, &amp;#34;/api/v1&amp;#34;, &amp;#34;/apis&amp;#34;, &amp;#34;/apis/&amp;#34;, &amp;#34;/apis/admissionregistration.k8s.io&amp;#34;, &amp;#34;/apis/admissionregistration.k8s.io/v1beta1&amp;#34;, ... &amp;#34;/healthz&amp;#34;, &amp;#34;/healthz/autoregister-completion&amp;#34;, &amp;#34;/healthz/etcd&amp;#34;, ... &amp;#34;/logs&amp;#34;, &amp;#34;/metrics&amp;#34;, &amp;#34;/openapi/v2&amp;#34;, &amp;#34;/swagger-2.0.0.json&amp;#34;, &amp;#34;/swaggerapi&amp;#34;, &amp;#34;/version&amp;#34; 2.访问控制层 当用户访问api接口时，访问控制层将会做如下校验：
+对用户进行身份校验(authentication)&amp;ndash;&amp;gt; 校验用户对k8s资源对象访问权限(authorization) &amp;ndash;&amp;gt; 根据配置的资源访问许可逻辑(admission control)，判断是否访问。
+下面分别对这三种校验方式进行说明：
+2.1 Authentication 身份校验 k8s提供了三种客户端身份校验方式：https双向证书认证，http token方式认证， http base 认证也就是用户名密码方式
+a. 基于CA根证书签名的双向数字证书认证
+client和server向CA机构申请证书
+client-&amp;gt;server，server下发服务端证书，client利用证书验证server是否合法
+client发送客户端证书给server，server利用证书校验client是否合法
+client和server利用随机密钥加密消息，然后通信
+apiserver启动的时候通过&amp;ndash;client-ca-file=XXXX配置签发client证书的CA，当client发送证书过来时，apiserver使用CA验证，如果证书合法，则可进行通信。
+这种方式的优点是安全，缺点是无法撤销用户证书，创建集群就绑定了证书。
+$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml - command: - kube-apiserver - --authorization-mode=Node,RBAC - --advertise-address=172.17.0.2 - --allow-privileged=true - --client-ca-file=/etc/kubernetes/pki/ca.crt b. http token 认证
+生成一个长串token，并放入header发起http请求，apiserver依据token识别用户
+apiserver启动通过&amp;ndash;token-auth-file=XXXXX加载所有用户token，client请求的时候Header加上token即可
+这种方式的有点是操作简单，缺点每次重新设置token需要重新启动apisever。
+$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml - command: --token-auth-file string c.</description>
     </item>
     
     <item>

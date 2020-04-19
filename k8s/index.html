@@ -45,6 +45,45 @@
   <div class="main" role="main">
     <section class="list section-list">
       <article class="article">
+        <a href="/k8s/api-server-source-read/" class="article-titles">
+          <h2 class="article-title">K8S Api Server 源码分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 13, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。
+Api Server架构 api server 架构从上到下可以分为以下几层： 1.Api层，主要包含三种api core api: 主要在/api/v1下
+分组api: 其path为/apis/$NAME/$VERSION
+暴露系统状态的api: 如/metrics,/healthz,/logs,/openapi等
+$ curl -k https://127.0.0.1:56521 { &#34;paths&#34;: [ &#34;/api&#34;, &#34;/api/v1&#34;, &#34;/apis&#34;, &#34;/apis/&#34;, &#34;/apis/admissionregistration.k8s.io&#34;, &#34;/apis/admissionregistration.k8s.io/v1beta1&#34;, ... &#34;/healthz&#34;, &#34;/healthz/autoregister-completion&#34;, &#34;/healthz/etcd&#34;, ... &#34;/logs&#34;, &#34;/metrics&#34;, &#34;/openapi/v2&#34;, &#34;/swagger-2.0.0.json&#34;, &#34;/swaggerapi&#34;, &#34;/version&#34; 2.访问控制层 当用户访问api接口时，访问控制层将会做如下校验：
+对用户进行身份校验(authentication)&ndash;&gt; 校验用户对k8s资源对象访问权限(authorization) &ndash;&gt; 根据配置的资源访问许可逻辑(admission control)，判断是否访问。
+下面分别对这三种校验方式进行说明：
+2.1 Authentication 身份校验 k8s提供了三种客户端身份校验方式：https双向证书认证，http token方式认证， http base 认证也就是用户名密码方式
+a. 基于CA根证书签名的双向数字证书认证
+client和server向CA机构申请证书
+client-&gt;server，server下发服务端证书，client利用证书验证server是否合法
+client发送客户端证书给server，server利用证书校验client是否合法
+client和server利用随机密钥加密消息，然后通信
+apiserver启动的时候通过&ndash;client-ca-file=XXXX配置签发client证书的CA，当client发送证书过来时，apiserver使用CA验证，如果证书合法，则可进行通信。
+这种方式的优点是安全，缺点是无法撤销用户证书，创建集群就绑定了证书。
+$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml - command: - kube-apiserver - --authorization-mode=Node,RBAC - --advertise-address=172.17.0.2 - --allow-privileged=true - --client-ca-file=/etc/kubernetes/pki/ca.crt b. http token 认证
+生成一个长串token，并放入header发起http请求，apiserver依据token识别用户
+apiserver启动通过&ndash;token-auth-file=XXXXX加载所有用户token，client请求的时候Header加上token即可
+这种方式的有点是操作简单，缺点每次重新设置token需要重新启动apisever。
+$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml - command: --token-auth-file string c.
+        </div>
+        <div class="article-readmore"><a href="/k8s/api-server-source-read/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/dns-problem/" class="article-titles">
           <h2 class="article-title">CoreDNS生产案：pod出现dns解析大量失败的问题</h2>
           

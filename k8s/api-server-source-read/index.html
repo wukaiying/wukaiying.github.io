@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>K8S Api Server 源码分析 - Kaiying</title>
+  <meta property="og:title" content="K8S Api Server 源码分析 - Kaiying" />
+  <meta name="twitter:title" content="K8S Api Server 源码分析 - Kaiying" />
+  <meta name="description" content="k8s api server源码分析">
+  <meta property="og:description" content="k8s api server源码分析">
+  <meta name="twitter:description" content="k8s api server源码分析">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/api-server-source-read/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">K8S Api Server 源码分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 13, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#api-server">Api Server架构</a></li>
+        <li><a href="#pod-">pod 启动完整流程</a></li>
+        <li><a href="#heading">参考</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <p>kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。</p>
+<h3 id="api-server">Api Server架构</h3>
+<p>api server 架构从上到下可以分为以下几层：
+<img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/AFC5DF3117A141908944858B534E8004/40" alt="api server架构图"></p>
+<h4 id="1apiapi">1.Api层，主要包含三种api</h4>
+<p>core api: 主要在/api/v1下</p>
+<p>分组api: 其path为/apis/$NAME/$VERSION</p>
+<p>暴露系统状态的api: 如/metrics,/healthz,/logs,/openapi等</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ curl -k https://127.0.0.1:56521
+
+<span style="color:#f92672">{</span>
+  <span style="color:#e6db74">&#34;paths&#34;</span>: <span style="color:#f92672">[</span>
+    <span style="color:#e6db74">&#34;/api&#34;</span>,
+    <span style="color:#e6db74">&#34;/api/v1&#34;</span>,
+    <span style="color:#e6db74">&#34;/apis&#34;</span>,
+    <span style="color:#e6db74">&#34;/apis/&#34;</span>,
+    <span style="color:#e6db74">&#34;/apis/admissionregistration.k8s.io&#34;</span>,
+    <span style="color:#e6db74">&#34;/apis/admissionregistration.k8s.io/v1beta1&#34;</span>,
+    ...
+    <span style="color:#e6db74">&#34;/healthz&#34;</span>,
+    <span style="color:#e6db74">&#34;/healthz/autoregister-completion&#34;</span>,
+    <span style="color:#e6db74">&#34;/healthz/etcd&#34;</span>,
+    ...
+    <span style="color:#e6db74">&#34;/logs&#34;</span>,
+    <span style="color:#e6db74">&#34;/metrics&#34;</span>,
+    <span style="color:#e6db74">&#34;/openapi/v2&#34;</span>,
+    <span style="color:#e6db74">&#34;/swagger-2.0.0.json&#34;</span>,
+    <span style="color:#e6db74">&#34;/swaggerapi&#34;</span>,
+    <span style="color:#e6db74">&#34;/version&#34;</span>
+</code></pre></div><h4 id="2">2.访问控制层</h4>
+<p>当用户访问api接口时，访问控制层将会做如下校验：</p>
+<p>对用户进行身份校验(authentication)&ndash;&gt; 校验用户对k8s资源对象访问权限(authorization) &ndash;&gt; 根据配置的资源访问许可逻辑(admission control)，判断是否访问。</p>
+<p>下面分别对这三种校验方式进行说明：</p>
+<h4 id="21-authentication-">2.1 Authentication 身份校验</h4>
+<p>k8s提供了三种客户端身份校验方式：https双向证书认证，http token方式认证， http base 认证也就是用户名密码方式</p>
+<p>a. 基于CA根证书签名的双向数字证书认证</p>
+<p>client和server向CA机构申请证书</p>
+<p>client-&gt;server，server下发服务端证书，client利用证书验证server是否合法</p>
+<p>client发送客户端证书给server，server利用证书校验client是否合法</p>
+<p>client和server利用随机密钥加密消息，然后通信</p>
+<p>apiserver启动的时候通过&ndash;client-ca-file=XXXX配置签发client证书的CA，当client发送证书过来时，apiserver使用CA验证，如果证书合法，则可进行通信。</p>
+<p>这种方式的优点是安全，缺点是无法撤销用户证书，创建集群就绑定了证书。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml
+
+- command:
+    - kube-apiserver
+    - --authorization-mode<span style="color:#f92672">=</span>Node,RBAC
+    - --advertise-address<span style="color:#f92672">=</span>172.17.0.2
+    - --allow-privileged<span style="color:#f92672">=</span>true
+    - --client-ca-file<span style="color:#f92672">=</span>/etc/kubernetes/pki/ca.crt
+</code></pre></div><p>b. http token 认证</p>
+<p>生成一个长串token，并放入header发起http请求，apiserver依据token识别用户</p>
+<p>apiserver启动通过&ndash;token-auth-file=XXXXX加载所有用户token，client请求的时候Header加上token即可</p>
+<p>这种方式的有点是操作简单，缺点每次重新设置token需要重新启动apisever。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml
+
+- command:
+   --token-auth-file string
+</code></pre></div><p>c. http 用户名密码认证</p>
+<p>在向api server发送请求时，将<code>username:password</code>进行base64加密存入http request中的Header Authorization域中，apiserver依据这个域中的信息识别用户。</p>
+<p>apiserver启动时通过参数&ndash;basic-auth-file=XXXX指定用户信息的文件路径，client请求的时候Header带上base64(user:password)即可。</p>
+<p>d. service account</p>
+<p>主要面向pod内部访问apiserver的鉴权方式。controller manager和apiserver会利用server端的私钥为每个pod创建一个token，并挂载到/run/secrets/kubernetes.io/serviceaccount/路径下。pod在访问apiserver的时候带上该token就行</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ k exec -it mysql2-65848bd47c-8p5jh /bin/bash
+
+root@mysql2-65848bd47c-8p5jh:/run/secrets/kubernetes.io/serviceaccount# ls
+ca.crt	namespace  token
+</code></pre></div><p>e. 其他方式(TODO，暂时标记)</p>
+<p>openId
+基于OAuth2协议认证，受各大云提供商青睐</p>
+<p>Webhook Token
+按照规定k8s的接口规范，自定义token认证</p>
+<p>keystone password
+openstack提供的认证和授权方案，适合采用openstack体系搭建k8s的团队，处于试验阶段</p>
+<p>匿名请求
+当开启匿名请求时，所有没有被拒绝的请求都被认为是匿名请求，在授权阶段，这些请求都被统一处理</p>
+<p>源码分析：</p>
+<pre><code>pkg/kubeapiserver/authenticator/config.go
+
+# 根据传入认证方式信息来生成 authenticators，然后将用户信息提取进行校验
+func (config Config) New() (authenticator.Request, *spec.SecurityDefinitions, error) {
+	var authenticators []authenticator.Request
+    // basic auth
+	if len(config.BasicAuthFile) &gt; 0 {
+		basicAuth, err := newAuthenticatorFromBasicAuthFile(config.BasicAuthFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		authenticators = append(authenticators, authenticator.WrapAudienceAgnosticRequest(config.APIAudiences, basicAuth))
+
+		securityDefinitions[&quot;HTTPBasic&quot;] = &amp;spec.SecurityScheme{
+			SecuritySchemeProps: spec.SecuritySchemeProps{
+				Type:        &quot;basic&quot;,
+				Description: &quot;HTTP Basic authentication&quot;,
+			},
+		}
+	}
+
+	// X509 methods
+	if len(config.ClientCAFile) &gt; 0 {
+		certAuth, err := newAuthenticatorFromClientCAFile(config.ClientCAFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		authenticators = append(authenticators, certAuth)
+	}
+
+	// Bearer token methods, local first, then remote
+	if len(config.TokenAuthFile) &gt; 0 {
+		tokenAuth, err := newAuthenticatorFromTokenFile(config.TokenAuthFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		tokenAuthenticators = append(tokenAuthenticators, authenticator.WrapAudienceAgnosticToken(config.APIAudiences, tokenAuth))
+	}
+	if len(config.ServiceAccountKeyFiles) &gt; 0 {
+		serviceAccountAuth, err := newLegacyServiceAccountAuthenticator(config.ServiceAccountKeyFiles, config.ServiceAccountLookup, config.APIAudiences, config.ServiceAccountTokenGetter)
+		if err != nil {
+			return nil, nil, err
+		}
+		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
+	}
+
+    fmt.Println(&quot;the length of authticator:&quot;, len(authenticators))
+    switch len(authenticators) {
+    case 0:
+        return nil, nil
+    case 1:
+        return authenticators[0], nil
+    default:
+        return union.New(authenticators...), nil
+    }
+
+}
+</code></pre><h4 id="22-authorization-">2.2 Authorization 资源对象访问权限</h4>
+<p>通过api server用户认证的请求，接下来会进行资源访问权限认证，授予不同用户不同的资源访问权限。
+通过&ndash;authorization-mode来设置，可以看到默认为Node，RBAC模式</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml
+
+  containers:
+  - command:
+    - kube-apiserver
+    - --authorization-mode<span style="color:#f92672">=</span>Node,RBAC
+</code></pre></div><p>目前支持的几种授权策略：</p>
+<ul>
+<li>AlwaysDeny：拒绝所有请求，用于测试</li>
+<li>AlwaysAllow：允许所有请求，k8s默认策略</li>
+<li>ABAC：基于属性的访问控制。表示使用用户配置的规则对用户请求进行控制</li>
+<li>RBAC：基于角色的访问控制</li>
+<li>Webhook：通过调用外部rest服务对用户授权</li>
+</ul>
+<p><em>ABAC 介绍</em>
+ABAC 配置需要两步第一步在api server启动参数中设置<code>--authorization-mode=ABAC</code>,然后指定策略文件的
+路径和名称<code>--authorization-policy-file=SOME_FILENAME                       </code>(json格式)并重新启动api server。</p>
+<p>策略文件中定义了某用户能放资源的权限，当用户再向api server提交资源创建属性后，api server会根据策略文件
+中定义的策略，对用户提交的属性逐一进行判定(可能有多个策略)，如果至少有一条策略匹配成功，则该请求会被通过。</p>
+<p>允许用户alice对所有资源做任何操作：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;user&#34;</span>: <span style="color:#e6db74">&#34;alice&#34;</span>, <span style="color:#f92672">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>, <span style="color:#f92672">&#34;resource&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>, <span style="color:#f92672">&#34;apiGroup&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>}}
+</code></pre></div><p>允许kubelet读取任何pod</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;user&#34;</span>: <span style="color:#e6db74">&#34;kubelet&#34;</span>, <span style="color:#f92672">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>, <span style="color:#f92672">&#34;resource&#34;</span>: <span style="color:#e6db74">&#34;pods&#34;</span>, <span style="color:#f92672">&#34;readonly&#34;</span>: <span style="color:#66d9ef">true</span>}}
+</code></pre></div><p>Bob 可以读取命名空间projectCaribou中的pod:</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;user&#34;</span>: <span style="color:#e6db74">&#34;bob&#34;</span>, <span style="color:#f92672">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;projectCaribou&#34;</span>, <span style="color:#f92672">&#34;resource&#34;</span>: <span style="color:#e6db74">&#34;pods&#34;</span>, <span style="color:#f92672">&#34;readonly&#34;</span>: <span style="color:#66d9ef">true</span>}}
+</code></pre></div><p>一个完成的abac配置文件如下：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;group&#34;</span>:<span style="color:#e6db74">&#34;system:authenticated&#34;</span>,  <span style="color:#f92672">&#34;nonResourcePath&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>, <span style="color:#f92672">&#34;readonly&#34;</span>: <span style="color:#66d9ef">true</span>}}
+{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;group&#34;</span>:<span style="color:#e6db74">&#34;system:unauthenticated&#34;</span>, <span style="color:#f92672">&#34;nonResourcePath&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>, <span style="color:#f92672">&#34;readonly&#34;</span>: <span style="color:#66d9ef">true</span>}}
+{<span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;abac.authorization.kubernetes.io/v1beta1&#34;</span>, <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;Policy&#34;</span>, <span style="color:#f92672">&#34;spec&#34;</span>: {<span style="color:#f92672">&#34;user&#34;</span>:<span style="color:#e6db74">&#34;admin&#34;</span>,     <span style="color:#f92672">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>,              <span style="color:#f92672">&#34;resource&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>,         <span style="color:#f92672">&#34;apiGroup&#34;</span>: <span style="color:#e6db74">&#34;*&#34;</span>                   }}
+<span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">.</span>
+</code></pre></div><p><em>RBAC 介绍</em></p>
+<p>基于角色的权限控制系统，k8s推荐使用该模式，默认api server也是使用该模式</p>
+<p>RBAC的四个资源对象：</p>
+<ul>
+<li>Role：一个角色就是一组权限的集合，拥有某个namespace下的权限</li>
+<li>ClusterRole：集群角色，拥有整个cluster下的权限</li>
+<li>RoleBinding：将Role绑定目标（user、group、service account）</li>
+<li>ClusterRoleBinding：将ClusterRoleBinding绑定目标</li>
+</ul>
+<p><em>webhook 授权介绍</em></p>
+<p>启用该模式进行授权认证，k8s会调用外部rest服务来进行授权。webhook 配置需要两步第一步在api server启动参数中设置<code>--authorization-mode=Webhook</code>，然后使用参数<code>--authorization-webhook-config-file=SOME_FILENAME</code>来设置远端授权服务的信息。
+启用该模式后api server 相当于客户端，而外部rest server相当于服务端。</p>
+<p>webhook配置文件样例：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json"><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">K</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">s</span> <span style="color:#960050;background-color:#1e0010">A</span><span style="color:#960050;background-color:#1e0010">P</span><span style="color:#960050;background-color:#1e0010">I</span> <span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span>
+<span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">V</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">v</span><span style="color:#ae81ff">1</span>
+<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">d</span> <span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">A</span><span style="color:#960050;background-color:#1e0010">P</span><span style="color:#960050;background-color:#1e0010">I</span> <span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">j</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">t</span>
+<span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">d</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">C</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">g</span>
+<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">远</span><span style="color:#960050;background-color:#1e0010">端</span><span style="color:#960050;background-color:#1e0010">w</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">k</span> <span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">访</span><span style="color:#960050;background-color:#1e0010">问</span><span style="color:#960050;background-color:#1e0010">地</span><span style="color:#960050;background-color:#1e0010">址</span><span style="color:#960050;background-color:#1e0010">及</span><span style="color:#960050;background-color:#1e0010">证</span><span style="color:#960050;background-color:#1e0010">书</span><span style="color:#960050;background-color:#1e0010">.</span>
+<span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">:</span>
+  <span style="color:#960050;background-color:#1e0010">-</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">z</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span>
+    <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">:</span>
+      <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">C</span><span style="color:#960050;background-color:#1e0010">A</span> <span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">r</span> <span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">y</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">g</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">.</span>
+      <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">y</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span>
+      <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">U</span><span style="color:#960050;background-color:#1e0010">R</span><span style="color:#960050;background-color:#1e0010">L</span> <span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span> <span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span> <span style="color:#960050;background-color:#1e0010">q</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">y</span><span style="color:#960050;background-color:#1e0010">.</span> <span style="color:#960050;background-color:#1e0010">M</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">t</span> <span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#960050;background-color:#1e0010">.</span> <span style="color:#960050;background-color:#1e0010">M</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">y</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">t</span> <span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">d</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">.</span>
+      <span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">:</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">z</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">x</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">z</span><span style="color:#960050;background-color:#1e0010">e</span>
+
+<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span> <span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">A</span><span style="color:#960050;background-color:#1e0010">P</span><span style="color:#960050;background-color:#1e0010">I</span> <span style="color:#960050;background-color:#1e0010">S</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#960050;background-color:#1e0010">s</span> <span style="color:#960050;background-color:#1e0010">w</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">k</span> <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">g</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">.</span>
+<span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">:</span>
+  <span style="color:#960050;background-color:#1e0010">-</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span>
+    <span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">:</span>
+      <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span> <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">t</span> <span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">r</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">w</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">k</span> <span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">g</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span> <span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span>
+      <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">y</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">y</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span>          <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">y</span> <span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">g</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">t</span>
+
+<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#960050;background-color:#1e0010">k</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">g</span> <span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">s</span> <span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">q</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">a</span> <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">x</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">.</span> <span style="color:#960050;background-color:#1e0010">P</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">d</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">r</span> <span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">e</span> <span style="color:#960050;background-color:#1e0010">A</span><span style="color:#960050;background-color:#1e0010">P</span><span style="color:#960050;background-color:#1e0010">I</span> <span style="color:#960050;background-color:#1e0010">S</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">.</span>
+<span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">x</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">w</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">k</span>
+<span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">x</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">:</span>
+<span style="color:#960050;background-color:#1e0010">-</span> <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">x</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">:</span>
+    <span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">l</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">t</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">z</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">c</span><span style="color:#960050;background-color:#1e0010">e</span>
+    <span style="color:#960050;background-color:#1e0010">u</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">f</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">p</span><span style="color:#960050;background-color:#1e0010">i</span><span style="color:#960050;background-color:#1e0010">-</span><span style="color:#960050;background-color:#1e0010">s</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span><span style="color:#960050;background-color:#1e0010">v</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">r</span>
+  <span style="color:#960050;background-color:#1e0010">n</span><span style="color:#960050;background-color:#1e0010">a</span><span style="color:#960050;background-color:#1e0010">m</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">:</span> <span style="color:#960050;background-color:#1e0010">w</span><span style="color:#960050;background-color:#1e0010">e</span><span style="color:#960050;background-color:#1e0010">b</span><span style="color:#960050;background-color:#1e0010">h</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">o</span><span style="color:#960050;background-color:#1e0010">k</span>
+</code></pre></div><p>假设bob想要访问某个namespace下的pod, 在授权开始时，API Server会生成一个api.authorization.v1beta1.SubjectAccessReview对象，用于描述操作信息</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{
+  <span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;authorization.k8s.io/v1beta1&#34;</span>,
+  <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;SubjectAccessReview&#34;</span>,
+  <span style="color:#f92672">&#34;spec&#34;</span>: {
+    <span style="color:#f92672">&#34;resourceAttributes&#34;</span>: {
+      <span style="color:#f92672">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;kittensandponies&#34;</span>,
+      <span style="color:#f92672">&#34;verb&#34;</span>: <span style="color:#e6db74">&#34;get&#34;</span>,
+      <span style="color:#f92672">&#34;group&#34;</span>: <span style="color:#e6db74">&#34;unicorn.example.org&#34;</span>,
+      <span style="color:#f92672">&#34;resource&#34;</span>: <span style="color:#e6db74">&#34;pods&#34;</span>
+    },
+    <span style="color:#f92672">&#34;user&#34;</span>: <span style="color:#e6db74">&#34;jane&#34;</span>,
+    <span style="color:#f92672">&#34;group&#34;</span>: [
+      <span style="color:#e6db74">&#34;group1&#34;</span>,
+      <span style="color:#e6db74">&#34;group2&#34;</span>
+    ]
+  }
+}
+</code></pre></div><p>api server 会携带该信息向远端rest server发送post请求，远端rest server通过返回allow或者not allow来决定这次请求是否合法。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">{
+  <span style="color:#f92672">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;authorization.k8s.io/v1beta1&#34;</span>,
+  <span style="color:#f92672">&#34;kind&#34;</span>: <span style="color:#e6db74">&#34;SubjectAccessReview&#34;</span>,
+  <span style="color:#f92672">&#34;status&#34;</span>: {
+    <span style="color:#f92672">&#34;allowed&#34;</span>: <span style="color:#66d9ef">true</span><span style="color:#960050;background-color:#1e0010">/</span><span style="color:#66d9ef">false</span>
+  }
+}
+</code></pre></div><h4 id="23-admission-control-">2.3 admission control 准入控制</h4>
+<p>经过认证和授权后，还需要经过多个准入控制器的审核，client到apiserver的请求才能成功，目前提供的准入控制器有这些（这些插件并不是都启用了）：
+admission control 有一个插件列表，有k8s默认提供的，也有用户可以扩展的。</p>
+<pre><code>NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, PersistentVolumeClaimResize, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, RuntimeClass, ResourceQuota
+</code></pre><p>查看k8s支持的admission control插件进入api server，运行命令</p>
+<pre><code>kube-apiserver -h | grep enable-admission-plugins
+</code></pre><p>比如上面有我常用到的两个<code>MutatingAdmissionWebhook, ValidatingAdmissionWebhook</code>来实现对用户提交的数据进行校验和patch。</p>
+<h4 id="3">3.注册表层</h4>
+<p>Kubernetes把所有资源对象都保存在注册表（Registry）中，针对注册表中的各种资源对象都定义了：资源对象的类型、如何创建资源对象、如何转换资源的 不同版本，以及如何将资源编码和解码为JSON或ProtoBuf格式进行存储。</p>
+<h4 id="4etcd">4.etcd数据库</h4>
+<p>用于持久化存储Kubernetes资源对象的KV数据库，只有api server可以向etcd中写入数据。</p>
+<h3 id="pod-">pod 启动完整流程</h3>
+<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D0AA207DCAF94148AF825813C8F70915/33" alt="pod创建流程"></p>
+<p>kubectl创建replicaset提交给api server，api server经过用户验证，权限验证，addmission验证，都通过之后提交到etcd。
+etcd有资源创建后，会发送create事件给api server，api server自己也有list-watch接口，这样其他组件可以通过该接口监听到api server中的变化。
+接下来,controller mannager 监听到有新的资源创建，开始创建pod，然后api sever将创建的pod存入etcd，etcd 发送创建pod事件给api server,
+schedule 监听api server，发现有新的pod创建需要进行调度，通过预选，优选算法给pod选择合适的node，然后更新pod，api server将更新的pod写入etcd，
+node节点中的kubelet监听api sever，之关注调度给自己的pod，发现有新的pod需要创建，开始在node中启动pod，然后将pod状态发送给api server， api server将pod更新后的信息写入etcd。</p>
+<p>如何理解list-watch
+list-watch用实现数据同步，为了减少api server压力，客户端首先调用API Server的List接口获取相关资源对象的全量数据并将其缓存到内存中，然后启动对应资源 对象的Watch协程，
+在接收到Watch事件后，再根据事件的类型（比如新增、修改或删 除）对内存中的全量资源对象列表做出相应的同步修改。</p>
+<h3 id="heading">参考</h3>
+<p><a href="https://mp.weixin.qq.com/s/TQuqAAzBjeWHwKPJZ3iJhA">https://mp.weixin.qq.com/s/TQuqAAzBjeWHwKPJZ3iJhA</a>
+<a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/</a>
+<a href="https://my.oschina.net/u/1378920/blog/1807839">https://my.oschina.net/u/1378920/blog/1807839</a></p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/dns-problem/" data-toggle="tooltip" data-placement="top" title="CoreDNS生产案：pod出现dns解析大量失败的问题">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
