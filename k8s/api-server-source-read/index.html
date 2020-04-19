@@ -62,16 +62,26 @@
   <ul>
     <li>
       <ul>
+        <li><a href="#heading">版本环境</a></li>
         <li><a href="#api-server">Api Server架构</a></li>
         <li><a href="#pod-">pod 启动完整流程</a></li>
-        <li><a href="#heading">参考</a></li>
+        <li><a href="#heading-1">参考</a></li>
       </ul>
     </li>
   </ul>
 </nav>
 </aside>
-      <p>kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。</p>
+      <h3 id="heading">版本环境</h3>
+<ul>
+<li>
+<p>kubernetes版本：kubernetes:v1.16.0</p>
+</li>
+<li>
+<p>go环境：go version go1.13.4 darwin/amd64</p>
+</li>
+</ul>
 <h3 id="api-server">Api Server架构</h3>
+<p>kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。</p>
 <p>api server 架构从上到下可以分为以下几层：
 <img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/AFC5DF3117A141908944858B534E8004/40" alt="api server架构图"></p>
 <h4 id="1apiapi">1.Api层，主要包含三种api</h4>
@@ -324,7 +334,7 @@ node节点中的kubelet监听api sever，之关注调度给自己的pod，发现
 <p>如何理解list-watch
 list-watch用实现数据同步，为了减少api server压力，客户端首先调用API Server的List接口获取相关资源对象的全量数据并将其缓存到内存中，然后启动对应资源 对象的Watch协程，
 在接收到Watch事件后，再根据事件的类型（比如新增、修改或删 除）对内存中的全量资源对象列表做出相应的同步修改。</p>
-<h3 id="heading">参考</h3>
+<h3 id="heading-1">参考</h3>
 <p><a href="https://mp.weixin.qq.com/s/TQuqAAzBjeWHwKPJZ3iJhA">https://mp.weixin.qq.com/s/TQuqAAzBjeWHwKPJZ3iJhA</a></p>
 <p><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/</a></p>
 <p><a href="https://my.oschina.net/u/1378920/blog/1807839">https://my.oschina.net/u/1378920/blog/1807839</a></p>
