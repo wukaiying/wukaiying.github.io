@@ -45,6 +45,30 @@
   <div class="main" role="main">
     <section class="list taxonomy-list">
       <article class="article">
+        <a href="/k8s/controller-manager-source-code-read/" class="article-titles">
+          <h2 class="article-title">K8S Controller Manager 源码分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 19, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace Controller、ServiceAccount Controller、Token Controller、Service Controller及Endpoint Controller这8种Controller， 每个Controller，它们通过API Server提供的（List-Watch）接口实时监控集群中特定资源的状态变化，当发生各种故障 导致某资源对象的状态发生变化时，Controller会尝试将其状态调整为期望的状态。
+代码总体解析 入口 # cmd/kube-controller-manager/controller-manager.go func main() { rand.Seed(time.Now().UnixNano()) command := app.NewControllerManagerCommand() logs.InitLogs() defer logs.FlushLogs() if err := command.Execute(); err != nil { os.Exit(1) } } 进入NewControllerManagerCommand 函数，可以看到新建ControllerManager需要两步 启动参数配置，及Run函数，进入Run函数。
+func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeControllerManagerOptions() if err != nil { klog.Fatalf(&#34;unable to initialize command options: %v&#34;, err) } cmd := &amp;cobra.Command{ Use: &#34;kube-controller-manager&#34;, Run: func(cmd *cobra.Command, args []string) { verflag.PrintAndExitIfRequested() utilflag.PrintFlags(cmd.Flags()) c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List()) if err != nil { fmt.Fprintf(os.Stderr, &#34;%v\n&#34;, err) os.
+        </div>
+        <div class="article-readmore"><a href="/k8s/controller-manager-source-code-read/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/api-server-source-read/" class="article-titles">
           <h2 class="article-title">K8S Api Server 源码分析</h2>
           
