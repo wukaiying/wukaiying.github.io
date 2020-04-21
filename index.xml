@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Sun, 19 Apr 2020 21:08:44 +0800</lastBuildDate>
+    <lastBuildDate>Tue, 21 Apr 2020 15:53:20 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/index.xml" rel="self" type="application/rss+xml" />
     
@@ -25,6 +25,17 @@ go-plugin 项目地址https://github.com/hashicorp/go-plugin
 Put(key string, value []byte) error Get(key string) ([]byte, error) ([]byte, error) 新建项目 这里我先将完整项目目录结构列出来
 . ├── Makefile ├── cmd │ ├── cmd │ ├── kv_wky │ └── main.go ├── pkg │ ├── plugins │ │ └── proto │ │ ├── plugin.pb.go │ │ └── plugin.proto │ └── shared │ ├── grpc.go │ └── plugin.go └── pluginclient ├── main.go └── pluginclient 定义proto 新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go
 syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key = 1;}message GetResponse { bytes value = 1;}message PutRequest { string key = 1; bytes value = 2;}message Empty {}service KV { rpc Get(GetRequest) returns (GetResponse); rpc Put(PutRequest) returns (Empty);} 定义对外暴露的插件接口 新建pkg/shared/plugin.</description>
+    </item>
+    
+    <item>
+      <title>Replica Set Controller 源码分析</title>
+      <link>https://wukaiying.github.io/k8s/replicaset-source-code-read/</link>
+      <pubDate>Tue, 21 Apr 2020 15:53:20 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/replicaset-source-code-read/</guid>
+      <description>版本环境 kubernetes版本：kubernetes:v1.16.0
+go环境：go version go1.13.4 darwin/amd64
+前言 </description>
     </item>
     
     <item>

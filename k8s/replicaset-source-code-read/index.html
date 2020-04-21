@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
-  <title>Categories - Kaiying</title>
-  <meta property="og:title" content="Categories - Kaiying" />
-  <meta name="twitter:title" content="Categories - Kaiying" />
+  <title>Replica Set Controller 源码分析 - Kaiying</title>
+  <meta property="og:title" content="Replica Set Controller 源码分析 - Kaiying" />
+  <meta name="twitter:title" content="Replica Set Controller 源码分析 - Kaiying" />
+  <meta name="description" content="replicaset controller源码分析">
+  <meta property="og:description" content="replicaset controller源码分析">
+  <meta name="twitter:description" content="replicaset controller源码分析">
   <meta name="author" content="kaiying"/>
   <meta property="og:site_name" content="Kaiying" />
-  <meta property="og:url" content="https://wukaiying.github.io/categories/" />
-  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/replicaset-source-code-read/" />
+  <meta property="og:type" content="article" />
   <meta name="twitter:card" content="summary" />
   <meta name="generator" content="Hugo 0.61.0" />
-  <link href="/categories/index.xml" rel="alternate" type="application/rss+xml" title="Kaiying" />
-  <link href="/categories/index.xml" rel="feed" type="application/rss+xml" title="Kaiying" />
 
   <link rel="stylesheet" href="/css/style.css" media="all" />
   <link rel="stylesheet" href="/css/syntax.css" media="all" />
@@ -39,38 +40,45 @@
 </header>
 <hr class="site-header-bottom">
 
-  
-  <div class="breadcrumb">
-    Categories
-  </div>
   <div class="main" role="main">
-    <section class="terms">
-      <ul>
-        <li>
-          <a href="/categories/golang/">Golang(1)</a>
-          <time>February 27, 2020</time>
-        </li>
-        <li>
-          <a href="/categories/hugo/">Hugo(1)</a>
-          <time>February 11, 2020</time>
-        </li>
-        <li>
-          <a href="/categories/k8s/">K8s(5)</a>
-          <time>April 21, 2020</time>
+    <article class="article">
+      
+      
+      <h1 class="article-title">Replica Set Controller 源码分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 21, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
         </li>
       </ul>
-    </section>
+      
+      <h3 id="heading">版本环境</h3>
+<p>kubernetes版本：kubernetes:v1.16.0</p>
+<p>go环境：go version go1.13.4 darwin/amd64</p>
+<h3 id="heading-1">前言</h3>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/controller-manager-source-code-read/" data-toggle="tooltip" data-placement="top" title="K8S Controller Manager 源码分析">Older &gt;</a>
+      </li>
+    </ul>
   </div>
 
 
 <div class="site-footer">
   <div class="copyright">&copy; Copyright 2017 Your name</div>
   <ul class="site-footer-items">
-    <li class="site-footer-item-rsslink">
-      <a href="/categories/index.xml" type="application/rss+xml" target="_blank" title="RSS">
-        <i class="fas fa-rss"></i>
-      </a>
-    </li>
     <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
   </ul>
   <div class="powerdby">
