@@ -325,7 +325,7 @@ admission control 有一个插件列表，有k8s默认提供的，也有用户�
 <h4 id="4etcd">4.etcd数据库</h4>
 <p>用于持久化存储Kubernetes资源对象的KV数据库，只有api server可以向etcd中写入数据。</p>
 <h3 id="pod-">pod 启动完整流程</h3>
-<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D0AA207DCAF94148AF825813C8F70915/33" alt="pod创建流程"></p>
+<p><img src="https://p.pstatp.com/origin/ff6d000068ecc44997c2" alt="pod创建流程"></p>
 <p>kubectl创建replicaset提交给api server，api server经过用户验证，权限验证，addmission验证，都通过之后提交到etcd。
 etcd有资源创建后，会发送create事件给api server，api server自己也有list-watch接口，这样其他组件可以通过该接口监听到api server中的变化。
 接下来,controller mannager 监听到有新的资源创建，开始创建pod，然后api sever将创建的pod存入etcd，etcd 发送创建pod事件给api server,
