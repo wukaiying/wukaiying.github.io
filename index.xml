@@ -35,7 +35,12 @@ syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key 
       <guid>https://wukaiying.github.io/k8s/replicaset-source-code-read/</guid>
       <description>版本环境 kubernetes版本：kubernetes:v1.16.0
 go环境：go version go1.13.4 darwin/amd64
-前言 </description>
+前言 前面文章已经总结到，deployment controller通过replicaset来控制pod的创建和删除，进而实现更高级操作例如，滚动更新，回滚等。本文继续从源码角度 分析replicaset controller如何控制pod的创建和删除。
+在分析源码前先考虑一下 replicaset 的使用场景，在平时的操作中其实我们并不会直接操作 replicaset，replicaset 也仅有几个简单的操作，创建、删除、更新等。
+源码分析 入口 我们在上一篇文章中也说道controller manager是所有k8s 资源controller的管控中心，包含的主要逻辑就是高可用选择leader，然后 遍历所有的controllers,对每一个controller进行初始化并启动，也就是说只要集群启动，所有的controller也会都启动起来，开始list-watch api server，来准备创建资源。
+cmd/kube-controller-manager/app/controllermanager.go:386 func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc { controllers := map[string]InitFunc{} controllers[&amp;#34;endpoint&amp;#34;] = startEndpointController controllers[&amp;#34;endpointslice&amp;#34;] = startEndpointSliceController ... controllers[&amp;#34;deployment&amp;#34;] = startDeploymentController controllers[&amp;#34;replicaset&amp;#34;] = startReplicaSetController } 接下来进入startReplicaSetController, 发现通过NewReplicaSetController初始化了ReplicaSetController，并并调用run方法启动controller。
+cmd/kube-controller-manager/app/apps.go:69 func startReplicaSetController(ctx ControllerContext) (http.Handler, bool, error) { if !ctx.AvailableResources[schema.GroupVersionResource{Group: &amp;#34;apps&amp;#34;, Version: &amp;#34;v1&amp;#34;, Resource: &amp;#34;replicasets&amp;#34;}] { return nil, false, nil } go replicaset.NewReplicaSetController( ctx.InformerFactory.Apps().V1().ReplicaSets(), ctx.InformerFactory.Core().V1().Pods(), ctx.ClientBuilder.ClientOrDie(&amp;#34;replicaset-controller&amp;#34;), replicaset.BurstReplicas, ).Run(int(ctx.ComponentConfig.ReplicaSetController.ConcurrentRSSyncs), ctx.Stop) return nil, true, nil } 我们先分析NewReplicaSetController看一下初始化ReplicaSetController的具体步骤：发现他会监听rs的add,update,delete操作，和pod的add,update,delete操作。 当这两种资源发送变化时，将key(name+namespace)添加到queue队列中去。
+//pkg/controller/replicaset/replica_set.go:126  func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer coreinformers.PodInformer, kubeClient clientset.Interface, burstReplicas int, gvk schema.GroupVersionKind, metricOwnerName, queueName string, podControl controller.</description>
     </item>
     
     <item>
