@@ -758,6 +758,7 @@ maxAvailable = replicas(10) + MaxSurge（3） = 13
 然后再将老的replicaset，replicas设置为0,最后更新deployment状态</p>
 <p>最后，deployment controller并不会直接控制pod的创建和删除，而是通过新建replicaset,并修改副本个数的方式来实现pod的更新与删除。
 接下来我们会看replicaset是如何控制pod的创建和删除，更新的。</p>
+<p><a href="https://wukaiying.github.io/k8s/replicaset-source-code-read/">Replica Set Controller 源码分析</a></p>
 <h3 id="heading-5">参考</h3>
 <p><a href="https://yq.aliyun.com/articles/688622">https://yq.aliyun.com/articles/688622</a>
 <a href="https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/deployment_controller.html">https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/deployment_controller.html</a></p>
