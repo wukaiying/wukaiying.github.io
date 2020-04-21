@@ -749,7 +749,7 @@ maxAvailable = replicas(10) + MaxSurge（3） = 13
 <p>此时oldRS需要减少maxUnavailable=2个pod, 然后newRS pod增加2个，直到newRs Pod为10，oldRs pod为0，完成rollingupdate。</p>
 <h3 id="heading-4">总结</h3>
 <p>deployment 的本质是控制 replicaSet，replicaSet 会控制 pod，然后由 controller 驱动各个对象达到期望状态。</p>
-<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D128E0043F184394903E4645A7D5DE52/43" alt="deployment replicaset pod关系"></p>
+<p><img src="https://pic.images.ac.cn/image/5e9ea587ab857.html" alt="deployment replicaset pod关系"></p>
 <p>DeploymentController 是 Deployment 资源的控制器，其通过 DeploymentInformer(add事件,update事件,delete事件)、ReplicaSetInformer(add事件 update事件 ,delete事件)、PodInformer(delete事件)
 来执行循环Loop操作。</p>
 <p>当deployment recreate时，deployment controller会调用replicaset controller逻辑，先将老的replicaset 副本数量设置为0，再启动一个新的replicasset，来
