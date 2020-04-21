@@ -722,19 +722,42 @@
 	<span style="color:#75715e">// Sync deployment status
 </span><span style="color:#75715e"></span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
 }
-</code></pre></div><p>1.获取新旧replicaset</p>
-<p>2.scale up 新的replicaset，将其replicas设置为指定值</p>
-<p>3.scale down 老的replicaset，将其replicas设置为0</p>
+</code></pre></div><p>1.获取新旧replicaset，如果没有新的则创建</p>
+<p>2.scale up 新的replicaset，将其replicas设置为指定值比如3</p>
+<p>3.scale down 老的replicaset，将其replicas设置为另外一个指定值比如2</p>
+<p>4.通过循环直到new replicaset pod 副本数达到10，old replicaset pod 副本数为0，完成</p>
 <p>4.更新deployment 状态</p>
+<p>下面来看下rollingupdate 算法层面实现：</p>
+<p>假设我们创建一个 nginx-deployment 有10 个副本，等 10 个 pod 都启动完成后如下所示：</p>
+<pre><code>$ kubectl create -f nginx-dep.yaml
+
+$ kubectl get rs
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-68b649bd8b   10        10        10      72m
+</code></pre><p>然后更新 nginx-deployment 的镜像，默认使用滚动更新的方式：</p>
+<pre><code>$ kubectl set image deploy/nginx-deployment nginx-deployment=nginx:1.9.3
+</code></pre><p>此时通过源码可知会计算该 deployment 的 maxSurge、maxUnavailable 和 maxAvailable 的值，分别为 3、2 和 13，计算方法如下所示：</p>
+<pre><code>// 向上取整为 3
+maxSurge = replicas * deployment.spec.strategy.rollingUpdate.maxSurge(25%)= 2.5
+
+// 向下取整为 2
+maxUnavailable = replicas * deployment.spec.strategy.rollingUpdate.maxUnavailable(25%)= 2.5
+
+maxAvailable = replicas(10) + MaxSurge（3） = 13
+</code></pre><p>此时deployment controller会创建一个新的newRS，将其replicas设置为3，然后开始创建pod副本，当所有 rs 的 replicas 已经达到最大值 10 + 3 = 13时，</p>
+<p>此时oldRS需要减少maxUnavailable=2个pod, 然后newRS pod增加2个，直到newRs Pod为10，oldRs pod为0，完成rollingupdate。</p>
 <h3 id="heading-4">总结</h3>
 <p>deployment 的本质是控制 replicaSet，replicaSet 会控制 pod，然后由 controller 驱动各个对象达到期望状态。</p>
 <p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D128E0043F184394903E4645A7D5DE52/43" alt="deployment replicaset pod关系">
 DeploymentController 是 Deployment 资源的控制器，其通过 DeploymentInformer(add事件,update事件,delete事件)、ReplicaSetInformer(add事件 update事件 ,delete事件)、PodInformer(delete事件)
 来执行循环Loop操作。</p>
-<p>当deployment更新时，deployment controller会调用replicaset controller逻辑，先将老的replicaset 副本数量设置为0，再启动一个新的replicasset，来
+<p>deploment</p>
+<p>当deployment recreate时，deployment controller会调用replicaset controller逻辑，先将老的replicaset 副本数量设置为0，再启动一个新的replicasset，来
 启动指定数量的pod，最后更新deployment状态</p>
-<p>当deployment 发送rollingupdate时，先启动新的replicaset，将replicas设置为指定数量之，
-然后再将老的replicaset，将replicas设置为0,最后更新deployment状态</p>
+<p>当deployment 发送rollingupdate时，先启动新的replicaset，将replicas设置为指定数量，
+然后再将老的replicaset，replicas设置为0,最后更新deployment状态</p>
+<p>最后，deployment controller并不会直接控制pod的创建和删除，而是通过新建replicaset,并修改副本个数的方式来实现pod的更新与删除。
+接下来我们会看replicaset是如何控制pod的创建和删除，更新的。</p>
 
     </article>
 
