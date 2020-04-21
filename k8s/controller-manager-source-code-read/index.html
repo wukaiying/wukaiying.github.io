@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>K8S Controller Manager 源码分析 - Kaiying</title>
+  <meta property="og:title" content="K8S Controller Manager 源码分析 - Kaiying" />
+  <meta name="twitter:title" content="K8S Controller Manager 源码分析 - Kaiying" />
+  <meta name="description" content="版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace Controller、ServiceAccount Controller、Token Controller、Service Controller及Endpoint Controller这8种Controller， 每个Controller，它们通过API Server提供的（List-Watch）接口实时监控集群中特定资源的状态变化，当发生各种故障 导致某资源对象的状态发生变化时，Controller会尝试将其状态调整为期望的状态。
+代码总体解析 入口 # cmd/kube-controller-manager/controller-manager.go func main() { rand.Seed(time.Now().UnixNano()) command := app.NewControllerManagerCommand() logs.InitLogs() defer logs.FlushLogs() if err := command.Execute(); err != nil { os.Exit(1) } } 进入NewControllerManagerCommand 函数，可以看到新建ControllerManager需要两步 启动参数配置，及Run函数，进入Run函数。
+func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeControllerManagerOptions() if err != nil { klog.Fatalf(&#34;unable to initialize command options: %v&#34;, err) } cmd := &amp;cobra.Command{ Use: &#34;kube-controller-manager&#34;, Run: func(cmd *cobra.Command, args []string) { verflag.PrintAndExitIfRequested() utilflag.PrintFlags(cmd.Flags()) c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List()) if err != nil { fmt.Fprintf(os.Stderr, &#34;%v\n&#34;, err) os.">
+  <meta property="og:description" content="版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace Controller、ServiceAccount Controller、Token Controller、Service Controller及Endpoint Controller这8种Controller， 每个Controller，它们通过API Server提供的（List-Watch）接口实时监控集群中特定资源的状态变化，当发生各种故障 导致某资源对象的状态发生变化时，Controller会尝试将其状态调整为期望的状态。
+代码总体解析 入口 # cmd/kube-controller-manager/controller-manager.go func main() { rand.Seed(time.Now().UnixNano()) command := app.NewControllerManagerCommand() logs.InitLogs() defer logs.FlushLogs() if err := command.Execute(); err != nil { os.Exit(1) } } 进入NewControllerManagerCommand 函数，可以看到新建ControllerManager需要两步 启动参数配置，及Run函数，进入Run函数。
+func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeControllerManagerOptions() if err != nil { klog.Fatalf(&#34;unable to initialize command options: %v&#34;, err) } cmd := &amp;cobra.Command{ Use: &#34;kube-controller-manager&#34;, Run: func(cmd *cobra.Command, args []string) { verflag.PrintAndExitIfRequested() utilflag.PrintFlags(cmd.Flags()) c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List()) if err != nil { fmt.Fprintf(os.Stderr, &#34;%v\n&#34;, err) os.">
+  <meta name="twitter:description" content="版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace …">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/controller-manager-source-code-read/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">K8S Controller Manager 源码分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 19, 2020</time></li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">版本环境</a></li>
+        <li><a href="#heading-1">前言</a></li>
+        <li><a href="#heading-2">代码总体解析</a></li>
+        <li><a href="#deployment-controller">deployment controller</a></li>
+        <li><a href="#heading-4">总结</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <h3 id="heading">版本环境</h3>
+<ul>
+<li>
+<p>kubernetes版本：kubernetes:v1.16.0</p>
+</li>
+<li>
+<p>go环境：go version go1.13.4 darwin/amd64</p>
+</li>
+</ul>
+<h3 id="heading-1">前言</h3>
+<p>Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace Controller、ServiceAccount Controller、Token Controller、Service Controller及Endpoint Controller这8种Controller，
+每个Controller，它们通过API Server提供的（List-Watch）接口实时监控集群中特定资源的状态变化，当发生各种故障 导致某资源对象的状态发生变化时，Controller会尝试将其状态调整为期望的状态。</p>
+<h3 id="heading-2">代码总体解析</h3>
+<h4 id="heading-3">入口</h4>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">cmd</span><span style="color:#f92672">/</span><span style="color:#a6e22e">kube</span><span style="color:#f92672">-</span><span style="color:#a6e22e">controller</span><span style="color:#f92672">-</span><span style="color:#a6e22e">manager</span><span style="color:#f92672">/</span><span style="color:#a6e22e">controller</span><span style="color:#f92672">-</span><span style="color:#a6e22e">manager</span>.<span style="color:#66d9ef">go</span>
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+	<span style="color:#a6e22e">rand</span>.<span style="color:#a6e22e">Seed</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Now</span>().<span style="color:#a6e22e">UnixNano</span>())
+	<span style="color:#a6e22e">command</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">app</span>.<span style="color:#a6e22e">NewControllerManagerCommand</span>()
+	<span style="color:#a6e22e">logs</span>.<span style="color:#a6e22e">InitLogs</span>()
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">logs</span>.<span style="color:#a6e22e">FlushLogs</span>()
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">command</span>.<span style="color:#a6e22e">Execute</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+	}
+}
+</code></pre></div><p>进入<code>NewControllerManagerCommand</code> 函数，可以看到新建<code>ControllerManager</code>需要两步
+启动参数配置，及<code>Run</code>函数，进入<code>Run</code>函数。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NewControllerManagerCommand</span>() <span style="color:#f92672">*</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span> {
+	<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">NewKubeControllerManagerOptions</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;unable to initialize command options: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#a6e22e">cmd</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span>{
+		<span style="color:#a6e22e">Use</span>: <span style="color:#e6db74">&#34;kube-controller-manager&#34;</span>,
+		<span style="color:#a6e22e">Run</span>: <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">cmd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span>, <span style="color:#a6e22e">args</span> []<span style="color:#66d9ef">string</span>) {
+			<span style="color:#a6e22e">verflag</span>.<span style="color:#a6e22e">PrintAndExitIfRequested</span>()
+			<span style="color:#a6e22e">utilflag</span>.<span style="color:#a6e22e">PrintFlags</span>(<span style="color:#a6e22e">cmd</span>.<span style="color:#a6e22e">Flags</span>())
+			<span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Config</span>(<span style="color:#a6e22e">KnownControllers</span>(), <span style="color:#a6e22e">ControllersDisabledByDefault</span>.<span style="color:#a6e22e">List</span>())
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Fprintf</span>(<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Stderr</span>, <span style="color:#e6db74">&#34;%v\n&#34;</span>, <span style="color:#a6e22e">err</span>)
+				<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+			}
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">Complete</span>(), <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Fprintf</span>(<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Stderr</span>, <span style="color:#e6db74">&#34;%v\n&#34;</span>, <span style="color:#a6e22e">err</span>)
+				<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+			}
+		},
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">cmd</span>
+}
+</code></pre></div><h4 id="run-function-">Run Function 启动流程</h4>
+<p>Run 函数中主要包含两个步骤，<code>StartControllers</code>和<code>leaderelection</code>。Kube Controller Manager 既可以单实例启动，也可以多实例启动。 如果为了保证HA一般都会启动多个Controller Manager，通过选举leader的方式来选举一个master来对外提供服务。
+关于选举的详细信息可以看我的另外一篇文章<a href="https://wukaiying.github.io/k8s/my-first-post/">Kubernetes中leaderelection实现组件高可用</a></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// Run runs the KubeControllerManagerOptions.  This should never exit.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">CompletedConfig</span>, <span style="color:#a6e22e">stopCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{}) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">run</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>) {
+		<span style="color:#a6e22e">controllerContext</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">CreateControllerContext</span>(<span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">rootClientBuilder</span>, <span style="color:#a6e22e">clientBuilder</span>, <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Done</span>())
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;error building controller context: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+		<span style="color:#a6e22e">saTokenControllerInitFunc</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">serviceAccountTokenControllerStarter</span>{<span style="color:#a6e22e">rootClientBuilder</span>: <span style="color:#a6e22e">rootClientBuilder</span>}.<span style="color:#a6e22e">startServiceAccountTokenController</span>
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">StartControllers</span>(<span style="color:#a6e22e">controllerContext</span>, <span style="color:#a6e22e">saTokenControllerInitFunc</span>, <span style="color:#a6e22e">NewControllerInitializers</span>(<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">LoopMode</span>), <span style="color:#a6e22e">unsecuredMux</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;error starting controllers: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+
+		<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">InformerFactory</span>.<span style="color:#a6e22e">Start</span>(<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">Stop</span>)
+		<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">ObjectOrMetadataInformerFactory</span>.<span style="color:#a6e22e">Start</span>(<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">Stop</span>)
+		close(<span style="color:#a6e22e">controllerContext</span>.<span style="color:#a6e22e">InformersStarted</span>)
+
+		<span style="color:#66d9ef">select</span> {}
+	}
+
+	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">LeaderElect</span> {
+		<span style="color:#a6e22e">run</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>())
+		panic(<span style="color:#e6db74">&#34;unreachable&#34;</span>)
+	}
+
+	<span style="color:#a6e22e">id</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Hostname</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// add a uniquifier so that two processes on the same host don&#39;t accidentally both become active
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">id</span> = <span style="color:#a6e22e">id</span> <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;_&#34;</span> <span style="color:#f92672">+</span> string(<span style="color:#a6e22e">uuid</span>.<span style="color:#a6e22e">NewUUID</span>())
+
+	<span style="color:#a6e22e">rl</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">resourcelock</span>.<span style="color:#a6e22e">New</span>(<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">ResourceLock</span>,
+		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">ResourceNamespace</span>,
+		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">ResourceName</span>,
+		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">LeaderElectionClient</span>.<span style="color:#a6e22e">CoreV1</span>(),
+		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">LeaderElectionClient</span>.<span style="color:#a6e22e">CoordinationV1</span>(),
+		<span style="color:#a6e22e">resourcelock</span>.<span style="color:#a6e22e">ResourceLockConfig</span>{
+			<span style="color:#a6e22e">Identity</span>:      <span style="color:#a6e22e">id</span>,
+			<span style="color:#a6e22e">EventRecorder</span>: <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">EventRecorder</span>,
+		})
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;error creating lock: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">RunOrDie</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">LeaderElectionConfig</span>{
+		<span style="color:#a6e22e">Lock</span>:          <span style="color:#a6e22e">rl</span>,
+		<span style="color:#a6e22e">LeaseDuration</span>: <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">LeaseDuration</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">RenewDeadline</span>: <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">RenewDeadline</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">RetryPeriod</span>:   <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">LeaderElection</span>.<span style="color:#a6e22e">RetryPeriod</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">Callbacks</span>: <span style="color:#a6e22e">leaderelection</span>.<span style="color:#a6e22e">LeaderCallbacks</span>{
+			<span style="color:#a6e22e">OnStartedLeading</span>: <span style="color:#a6e22e">run</span>,
+			<span style="color:#a6e22e">OnStoppedLeading</span>: <span style="color:#66d9ef">func</span>() {
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;leaderelection lost&#34;</span>)
+			},
+		},
+		<span style="color:#a6e22e">WatchDog</span>: <span style="color:#a6e22e">electionChecker</span>,
+		<span style="color:#a6e22e">Name</span>:     <span style="color:#e6db74">&#34;kube-controller-manager&#34;</span>,
+	})
+	panic(<span style="color:#e6db74">&#34;unreachable&#34;</span>)
+}
+</code></pre></div><h4 id="startcontrollers">StartControllers</h4>
+<p>选主完毕后，就需要真正启动controller了，我们来看一下启动controller 的代码</p>
+<p>主要逻辑遍历所有的controllers，controller类型为<code>controllers map[string]InitFunc</code>,包括controller名称，及其对应的init 方法。
+然后启动每个controller 的Init Function。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// StartControllers starts a set of controllers with a specified ControllerContext
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">StartControllers</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">ControllerContext</span>, <span style="color:#a6e22e">startSATokenController</span> <span style="color:#a6e22e">InitFunc</span>, <span style="color:#a6e22e">controllers</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#a6e22e">InitFunc</span>, <span style="color:#a6e22e">unsecuredMux</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">mux</span>.<span style="color:#a6e22e">PathRecorderMux</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#75715e">// Always start the SA token controller first using a full-power client, since it needs to mint tokens for the rest
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// If this fails, just return here and fail since other controllers won&#39;t be able to get credentials.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">startSATokenController</span>(<span style="color:#a6e22e">ctx</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// Initialize the cloud provider with a reference to the clientBuilder only after token controller
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// has started in case the cloud provider uses the client builder.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Cloud</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Cloud</span>.<span style="color:#a6e22e">Initialize</span>(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">ClientBuilder</span>, <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Stop</span>)
+	}
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">controllerName</span>, <span style="color:#a6e22e">initFn</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">controllers</span> {
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">IsControllerEnabled</span>(<span style="color:#a6e22e">controllerName</span>) {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;%q is disabled&#34;</span>, <span style="color:#a6e22e">controllerName</span>)
+			<span style="color:#66d9ef">continue</span>
+		}
+
+		<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Jitter</span>(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">Generic</span>.<span style="color:#a6e22e">ControllerStartInterval</span>.<span style="color:#a6e22e">Duration</span>, <span style="color:#a6e22e">ControllerStartJitter</span>))
+
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">1</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Starting %q&#34;</span>, <span style="color:#a6e22e">controllerName</span>)
+		<span style="color:#a6e22e">debugHandler</span>, <span style="color:#a6e22e">started</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">initFn</span>(<span style="color:#a6e22e">ctx</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Error starting %q&#34;</span>, <span style="color:#a6e22e">controllerName</span>)
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">started</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;Skipping %q&#34;</span>, <span style="color:#a6e22e">controllerName</span>)
+			<span style="color:#66d9ef">continue</span>
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">debugHandler</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">unsecuredMux</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">basePath</span> <span style="color:#f92672">:=</span> <span style="color:#e6db74">&#34;/debug/controllers/&#34;</span> <span style="color:#f92672">+</span> <span style="color:#a6e22e">controllerName</span>
+			<span style="color:#a6e22e">unsecuredMux</span>.<span style="color:#a6e22e">UnlistedHandle</span>(<span style="color:#a6e22e">basePath</span>, <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">StripPrefix</span>(<span style="color:#a6e22e">basePath</span>, <span style="color:#a6e22e">debugHandler</span>))
+			<span style="color:#a6e22e">unsecuredMux</span>.<span style="color:#a6e22e">UnlistedHandlePrefix</span>(<span style="color:#a6e22e">basePath</span><span style="color:#f92672">+</span><span style="color:#e6db74">&#34;/&#34;</span>, <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">StripPrefix</span>(<span style="color:#a6e22e">basePath</span>, <span style="color:#a6e22e">debugHandler</span>))
+		}
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Started %q&#34;</span>, <span style="color:#a6e22e">controllerName</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>来看下有多少默认提供的controller</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NewControllerInitializers</span>(<span style="color:#a6e22e">loopMode</span> <span style="color:#a6e22e">ControllerLoopMode</span>) <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#a6e22e">InitFunc</span> {
+	<span style="color:#a6e22e">controllers</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#a6e22e">InitFunc</span>{}
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;endpoint&#34;</span>] = <span style="color:#a6e22e">startEndpointController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;endpointslice&#34;</span>] = <span style="color:#a6e22e">startEndpointSliceController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;replicationcontroller&#34;</span>] = <span style="color:#a6e22e">startReplicationController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;podgc&#34;</span>] = <span style="color:#a6e22e">startPodGCController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;resourcequota&#34;</span>] = <span style="color:#a6e22e">startResourceQuotaController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;namespace&#34;</span>] = <span style="color:#a6e22e">startNamespaceController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;serviceaccount&#34;</span>] = <span style="color:#a6e22e">startServiceAccountController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;garbagecollector&#34;</span>] = <span style="color:#a6e22e">startGarbageCollectorController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;daemonset&#34;</span>] = <span style="color:#a6e22e">startDaemonSetController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;job&#34;</span>] = <span style="color:#a6e22e">startJobController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;deployment&#34;</span>] = <span style="color:#a6e22e">startDeploymentController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;replicaset&#34;</span>] = <span style="color:#a6e22e">startReplicaSetController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;horizontalpodautoscaling&#34;</span>] = <span style="color:#a6e22e">startHPAController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;disruption&#34;</span>] = <span style="color:#a6e22e">startDisruptionController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;statefulset&#34;</span>] = <span style="color:#a6e22e">startStatefulSetController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;cronjob&#34;</span>] = <span style="color:#a6e22e">startCronJobController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;csrsigning&#34;</span>] = <span style="color:#a6e22e">startCSRSigningController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;csrapproving&#34;</span>] = <span style="color:#a6e22e">startCSRApprovingController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;csrcleaner&#34;</span>] = <span style="color:#a6e22e">startCSRCleanerController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;ttl&#34;</span>] = <span style="color:#a6e22e">startTTLController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;bootstrapsigner&#34;</span>] = <span style="color:#a6e22e">startBootstrapSignerController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;tokencleaner&#34;</span>] = <span style="color:#a6e22e">startTokenCleanerController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;nodeipam&#34;</span>] = <span style="color:#a6e22e">startNodeIpamController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;nodelifecycle&#34;</span>] = <span style="color:#a6e22e">startNodeLifecycleController</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">loopMode</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">IncludeCloudLoops</span> {
+		<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;service&#34;</span>] = <span style="color:#a6e22e">startServiceController</span>
+		<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;route&#34;</span>] = <span style="color:#a6e22e">startRouteController</span>
+		<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;cloud-node-lifecycle&#34;</span>] = <span style="color:#a6e22e">startCloudNodeLifecycleController</span>
+		<span style="color:#75715e">// TODO: volume controller into the IncludeCloudLoops only set.
+</span><span style="color:#75715e"></span>	}
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;persistentvolume-binder&#34;</span>] = <span style="color:#a6e22e">startPersistentVolumeBinderController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;attachdetach&#34;</span>] = <span style="color:#a6e22e">startAttachDetachController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;persistentvolume-expander&#34;</span>] = <span style="color:#a6e22e">startVolumeExpandController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;clusterrole-aggregation&#34;</span>] = <span style="color:#a6e22e">startClusterRoleAggregrationController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;pvc-protection&#34;</span>] = <span style="color:#a6e22e">startPVCProtectionController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;pv-protection&#34;</span>] = <span style="color:#a6e22e">startPVProtectionController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;ttl-after-finished&#34;</span>] = <span style="color:#a6e22e">startTTLAfterFinishedController</span>
+	<span style="color:#a6e22e">controllers</span>[<span style="color:#e6db74">&#34;root-ca-cert-publisher&#34;</span>] = <span style="color:#a6e22e">startRootCACertPublisher</span>
+
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">controllers</span>
+}
+</code></pre></div><p>总结来说，controller manager是所有k8s 资源controller的管控中心，包含的主要逻辑就是高可用选择leader，然后
+遍历所有的controllers,对每一个controller进行初始化并启动，也就是说只要集群启动，所有的controller也会都启动起来，开始list-watch api server，来准备创建资源。</p>
+<h3 id="deployment-controller">deployment controller</h3>
+<p>下一节我们看一下deployment controller的详细逻辑：
+<code>deployment.NewDeploymentController</code>中使用informer来监听deployment，relicaset,pod资源的变化。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">startDeploymentController</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">ControllerContext</span>) (<span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">Handler</span>, <span style="color:#66d9ef">bool</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">AvailableResources</span>[<span style="color:#a6e22e">schema</span>.<span style="color:#a6e22e">GroupVersionResource</span>{<span style="color:#a6e22e">Group</span>: <span style="color:#e6db74">&#34;apps&#34;</span>, <span style="color:#a6e22e">Version</span>: <span style="color:#e6db74">&#34;v1&#34;</span>, <span style="color:#a6e22e">Resource</span>: <span style="color:#e6db74">&#34;deployments&#34;</span>}] {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">nil</span>
+	}
+	<span style="color:#a6e22e">dc</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">deployment</span>.<span style="color:#a6e22e">NewDeploymentController</span>(
+		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">InformerFactory</span>.<span style="color:#a6e22e">Apps</span>().<span style="color:#a6e22e">V1</span>().<span style="color:#a6e22e">Deployments</span>(),
+		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">InformerFactory</span>.<span style="color:#a6e22e">Apps</span>().<span style="color:#a6e22e">V1</span>().<span style="color:#a6e22e">ReplicaSets</span>(),
+		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">InformerFactory</span>.<span style="color:#a6e22e">Core</span>().<span style="color:#a6e22e">V1</span>().<span style="color:#a6e22e">Pods</span>(),
+		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">ClientBuilder</span>.<span style="color:#a6e22e">ClientOrDie</span>(<span style="color:#e6db74">&#34;deployment-controller&#34;</span>),
+	)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">true</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;error creating Deployment controller: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+    <span style="color:#75715e">//start deployment controller
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">Run</span>(int(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">ComponentConfig</span>.<span style="color:#a6e22e">DeploymentController</span>.<span style="color:#a6e22e">ConcurrentDeploymentSyncs</span>), <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Stop</span>)
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">true</span>, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><h4 id="newdeploymentcontroller">NewDeploymentController</h4>
+<p>可以看到DeploymentController,分别监听了deployment，replicaset, pod资源的添加，删除，更新方法。并使用informer的list方法
+来获取集群资源，减少与api server交互。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go:100
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">// NewDeploymentController creates a new DeploymentController.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NewDeploymentController</span>(<span style="color:#a6e22e">dInformer</span> <span style="color:#a6e22e">appsinformers</span>.<span style="color:#a6e22e">DeploymentInformer</span>, <span style="color:#a6e22e">rsInformer</span> <span style="color:#a6e22e">appsinformers</span>.<span style="color:#a6e22e">ReplicaSetInformer</span>, <span style="color:#a6e22e">podInformer</span> <span style="color:#a6e22e">coreinformers</span>.<span style="color:#a6e22e">PodInformer</span>, <span style="color:#a6e22e">client</span> <span style="color:#a6e22e">clientset</span>.<span style="color:#a6e22e">Interface</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#a6e22e">dc</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">DeploymentController</span>{
+		<span style="color:#a6e22e">client</span>:        <span style="color:#a6e22e">client</span>,
+		<span style="color:#a6e22e">eventRecorder</span>: <span style="color:#a6e22e">eventBroadcaster</span>.<span style="color:#a6e22e">NewRecorder</span>(<span style="color:#a6e22e">scheme</span>.<span style="color:#a6e22e">Scheme</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventSource</span>{<span style="color:#a6e22e">Component</span>: <span style="color:#e6db74">&#34;deployment-controller&#34;</span>}),
+		<span style="color:#a6e22e">queue</span>:         <span style="color:#a6e22e">workqueue</span>.<span style="color:#a6e22e">NewNamedRateLimitingQueue</span>(<span style="color:#a6e22e">workqueue</span>.<span style="color:#a6e22e">DefaultControllerRateLimiter</span>(), <span style="color:#e6db74">&#34;deployment&#34;</span>),
+	}
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rsControl</span> = <span style="color:#a6e22e">controller</span>.<span style="color:#a6e22e">RealRSControl</span>{
+		<span style="color:#a6e22e">KubeClient</span>: <span style="color:#a6e22e">client</span>,
+		<span style="color:#a6e22e">Recorder</span>:   <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">eventRecorder</span>,
+	}
+
+	<span style="color:#a6e22e">dInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">AddEventHandler</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">ResourceEventHandlerFuncs</span>{
+		<span style="color:#a6e22e">AddFunc</span>:    <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">addDeployment</span>,
+		<span style="color:#a6e22e">UpdateFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">updateDeployment</span>,
+		<span style="color:#75715e">// This will enter the sync loop and no-op, because the deployment has been deleted from the store.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">DeleteFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deleteDeployment</span>,
+	})
+	<span style="color:#a6e22e">rsInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">AddEventHandler</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">ResourceEventHandlerFuncs</span>{
+		<span style="color:#a6e22e">AddFunc</span>:    <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">addReplicaSet</span>,
+		<span style="color:#a6e22e">UpdateFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">updateReplicaSet</span>,
+		<span style="color:#a6e22e">DeleteFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deleteReplicaSet</span>,
+	})
+	<span style="color:#a6e22e">podInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">AddEventHandler</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">ResourceEventHandlerFuncs</span>{
+		<span style="color:#a6e22e">DeleteFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deletePod</span>,
+	})
+
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncHandler</span> = <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncDeployment</span>
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueueDeployment</span> = <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueue</span>
+
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">dLister</span> = <span style="color:#a6e22e">dInformer</span>.<span style="color:#a6e22e">Lister</span>()
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rsLister</span> = <span style="color:#a6e22e">rsInformer</span>.<span style="color:#a6e22e">Lister</span>()
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">podLister</span> = <span style="color:#a6e22e">podInformer</span>.<span style="color:#a6e22e">Lister</span>()
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">dListerSynced</span> = <span style="color:#a6e22e">dInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">HasSynced</span>
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rsListerSynced</span> = <span style="color:#a6e22e">rsInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">HasSynced</span>
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">podListerSynced</span> = <span style="color:#a6e22e">podInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">HasSynced</span>
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>然后我们再看下deployment informer中enventhandler的实现，主要逻辑就是通过List接口，得到add,update,delelete得到提交的deployment资源，然后通过获取<code>key, err := controller.KeyFunc(deployment)</code>,
+并将Key放入到queue队列中。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go:120
+</span><span style="color:#75715e"></span>
+<span style="color:#a6e22e">dInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">AddEventHandler</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">ResourceEventHandlerFuncs</span>{
+		<span style="color:#a6e22e">AddFunc</span>:    <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">addDeployment</span>,
+		<span style="color:#a6e22e">UpdateFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">updateDeployment</span>,
+		<span style="color:#75715e">// This will enter the sync loop and no-op, because the deployment has been deleted from the store.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">DeleteFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deleteDeployment</span>,
+	})
+
+<span style="color:#75715e">//adddeployment的实现
+</span><span style="color:#75715e"></span><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go:120
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">addDeployment</span>(<span style="color:#a6e22e">obj</span> <span style="color:#66d9ef">interface</span>{}) {
+	<span style="color:#a6e22e">d</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">obj</span>.(<span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">Deployment</span>)
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Adding deployment %s&#34;</span>, <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Name</span>)
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueueDeployment</span>(<span style="color:#a6e22e">d</span>)
+}
+
+<span style="color:#75715e">//enqueueDeployment = enqueue，通过传入Deployment来返回一个key(name+namespace)，并添加到队列中
+</span><span style="color:#75715e"></span><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go:377
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">enqueue</span>(<span style="color:#a6e22e">deployment</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">Deployment</span>) {
+	<span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">controller</span>.<span style="color:#a6e22e">KeyFunc</span>(<span style="color:#a6e22e">deployment</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleError</span>(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Couldn&#39;t get key for object %#v: %v&#34;</span>, <span style="color:#a6e22e">deployment</span>, <span style="color:#a6e22e">err</span>))
+		<span style="color:#66d9ef">return</span>
+	}
+
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">queue</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">key</span>)
+}
+</code></pre></div><p>再看一下replicaset informer中eventhandler实现</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/controller/deployment/deployment_controller.go:126
+</span><span style="color:#75715e"></span><span style="color:#a6e22e">rsInformer</span>.<span style="color:#a6e22e">Informer</span>().<span style="color:#a6e22e">AddEventHandler</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">ResourceEventHandlerFuncs</span>{
+		<span style="color:#a6e22e">AddFunc</span>:    <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">addReplicaSet</span>,
+		<span style="color:#a6e22e">UpdateFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">updateReplicaSet</span>,
+		<span style="color:#a6e22e">DeleteFunc</span>: <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deleteReplicaSet</span>,
+	})
+
+<span style="color:#75715e">////pkg/controller/deployment/deployment_controller.go:197
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">// addReplicaSet enqueues the deployment that manages a ReplicaSet when the ReplicaSet is created.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">addReplicaSet</span>(<span style="color:#a6e22e">obj</span> <span style="color:#66d9ef">interface</span>{}) {
+	<span style="color:#a6e22e">rs</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">obj</span>.(<span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">ReplicaSet</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">rs</span>.<span style="color:#a6e22e">DeletionTimestamp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#75715e">// On a restart of the controller manager, it&#39;s possible for an object to
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// show up in a state that is already pending deletion.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">deleteReplicaSet</span>(<span style="color:#a6e22e">rs</span>)
+		<span style="color:#66d9ef">return</span>
+	}
+
+	<span style="color:#75715e">// If it has a ControllerRef, that&#39;s all that matters.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">controllerRef</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">GetControllerOf</span>(<span style="color:#a6e22e">rs</span>); <span style="color:#a6e22e">controllerRef</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">d</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">resolveControllerRef</span>(<span style="color:#a6e22e">rs</span>.<span style="color:#a6e22e">Namespace</span>, <span style="color:#a6e22e">controllerRef</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">d</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span>
+		}
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;ReplicaSet %s added.&#34;</span>, <span style="color:#a6e22e">rs</span>.<span style="color:#a6e22e">Name</span>)
+		<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueueDeployment</span>(<span style="color:#a6e22e">d</span>)
+		<span style="color:#66d9ef">return</span>
+	}
+
+	<span style="color:#75715e">// Otherwise, it&#39;s an orphan. Get a list of all matching Deployments and sync
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// them to see if anyone wants to adopt it.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">ds</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getDeploymentsForReplicaSet</span>(<span style="color:#a6e22e">rs</span>)
+	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">ds</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">return</span>
+	}
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Orphan ReplicaSet %s added.&#34;</span>, <span style="color:#a6e22e">rs</span>.<span style="color:#a6e22e">Name</span>)
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">d</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">ds</span> {
+		<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueueDeployment</span>(<span style="color:#a6e22e">d</span>)
+	}
+}
+</code></pre></div><p>通过阅读addReplicaset我们可以发现，当replicaset发生变化时，首先会通过replicaset中的ownnerreference结构体<code>d := dc.resolveControllerRef(rs.Namespace, controllerRef)</code>来，找到
+与他有关联的deployment，随着rs的add,update,delete，将相应的deploymnet 的key(name+namepace)添加到队列queue中。</p>
+<p>最后看一下<code>podInformer.Informer()</code>中的方法：
+注释描述的很清楚，当deployment对应的pod都不存在时，将该deployment放入队列queue中。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// deletePod will enqueue a Recreate Deployment once all of its pods have stopped running.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">deletePod</span>(<span style="color:#a6e22e">obj</span> <span style="color:#66d9ef">interface</span>{}) {
+	<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">obj</span>.(<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>)
+
+	<span style="color:#75715e">// When a delete is dropped, the relist will notice a pod in the store not
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// in the list, leading to the insertion of a tombstone object which contains
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// the deleted key/value. Note that this value might be stale. If the Pod
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// changed labels the new deployment will not be woken up till the periodic resync.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+		<span style="color:#a6e22e">tombstone</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">obj</span>.(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">DeletedFinalStateUnknown</span>)
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+			<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleError</span>(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Couldn&#39;t get object from tombstone %#v&#34;</span>, <span style="color:#a6e22e">obj</span>))
+			<span style="color:#66d9ef">return</span>
+		}
+		<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">ok</span> = <span style="color:#a6e22e">tombstone</span>.<span style="color:#a6e22e">Obj</span>.(<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>)
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+			<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleError</span>(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Tombstone contained object that is not a pod %#v&#34;</span>, <span style="color:#a6e22e">obj</span>))
+			<span style="color:#66d9ef">return</span>
+		}
+	}
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Pod %s deleted.&#34;</span>, <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">Name</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">d</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getDeploymentForPod</span>(<span style="color:#a6e22e">pod</span>); <span style="color:#a6e22e">d</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Strategy</span>.<span style="color:#a6e22e">Type</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">RecreateDeploymentStrategyType</span> {
+		<span style="color:#75715e">// Sync if this Deployment now has no more Pods.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">rsList</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">util</span>.<span style="color:#a6e22e">ListReplicaSets</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">util</span>.<span style="color:#a6e22e">RsListFromClient</span>(<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">AppsV1</span>()))
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span>
+		}
+		<span style="color:#a6e22e">podMap</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getPodMapForDeployment</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span>
+		}
+		<span style="color:#a6e22e">numPods</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">podList</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">podMap</span> {
+			<span style="color:#a6e22e">numPods</span> <span style="color:#f92672">+=</span> len(<span style="color:#a6e22e">podList</span>)
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">numPods</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+			<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">enqueueDeployment</span>(<span style="color:#a6e22e">d</span>)
+		}
+	}
+}
+</code></pre></div><h4 id="run-deployment-controller">Run deployment controller</h4>
+<p>上面构建好了deployment controller，接下来看controller的启动函数
+<code>cache.WaitForNamedCacheSync</code> 扥带Informer cache完成，<code>go wait.Until(dc.worker, time.Second, stopCh)</code>则启动指定数量的deployment goroutine 来处理提交的资源，直到处理完成，</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// Run begins watching and syncing.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// //pkg/controller/deployment/deployment_controller.go:148
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">workers</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">stopCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{}) {
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleCrash</span>()
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">queue</span>.<span style="color:#a6e22e">ShutDown</span>()
+	
+	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">WaitForNamedCacheSync</span>(<span style="color:#e6db74">&#34;deployment&#34;</span>, <span style="color:#a6e22e">stopCh</span>, <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">dListerSynced</span>, <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rsListerSynced</span>, <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">podListerSynced</span>) {
+		<span style="color:#66d9ef">return</span>
+	}
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">workers</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">worker</span>, <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>, <span style="color:#a6e22e">stopCh</span>)
+	}
+
+	<span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">stopCh</span>
+}
+
+<span style="color:#75715e">// worker runs a worker thread that just dequeues items, processes them, and marks them done.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// It enforces that the syncHandler is never invoked concurrently with the same key.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">worker</span>() {
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">processNextWorkItem</span>() {
+	}
+}
+<span style="color:#75715e">// //pkg/controller/deployment/deployment_controller.go:460
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">processNextWorkItem</span>() <span style="color:#66d9ef">bool</span> {
+	<span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">quit</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">queue</span>.<span style="color:#a6e22e">Get</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">quit</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>
+	}
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">queue</span>.<span style="color:#a6e22e">Done</span>(<span style="color:#a6e22e">key</span>)
+
+	<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncHandler</span>(<span style="color:#a6e22e">key</span>.(<span style="color:#66d9ef">string</span>))
+	<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">handleErr</span>(<span style="color:#a6e22e">err</span>, <span style="color:#a6e22e">key</span>)
+
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+}
+</code></pre></div><p><code>dc.worker</code> 里面描述了worker，也就是deploymentcontroller所做的具体逻辑, 不断地从informer queue中取出key
+然后调用<code>dc.syncHandler(key.(string))</code>，接下来看下syncHandler中的逻辑：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// syncDeployment will sync the deployment with the given key.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// This function is not meant to be invoked concurrently with the same key.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">syncDeployment</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">startTime</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Now</span>()
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Started syncing deployment %q (%v)&#34;</span>, <span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">startTime</span>)
+	<span style="color:#66d9ef">defer</span> <span style="color:#66d9ef">func</span>() {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Finished syncing deployment %q (%v)&#34;</span>, <span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Since</span>(<span style="color:#a6e22e">startTime</span>))
+	}()
+
+	<span style="color:#a6e22e">namespace</span>, <span style="color:#a6e22e">name</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">SplitMetaNamespaceKey</span>(<span style="color:#a6e22e">key</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">deployment</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">dLister</span>.<span style="color:#a6e22e">Deployments</span>(<span style="color:#a6e22e">namespace</span>).<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">name</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">IsNotFound</span>(<span style="color:#a6e22e">err</span>) {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Deployment %v has been deleted&#34;</span>, <span style="color:#a6e22e">key</span>)
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// Deep-copy otherwise we are mutating our cache.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// TODO: Deep-copy only when needed.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">d</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">deployment</span>.<span style="color:#a6e22e">DeepCopy</span>()
+
+	<span style="color:#a6e22e">everything</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">LabelSelector</span>{}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">reflect</span>.<span style="color:#a6e22e">DeepEqual</span>(<span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Selector</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">everything</span>) {
+		<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">eventRecorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#e6db74">&#34;SelectingAll&#34;</span>, <span style="color:#e6db74">&#34;This deployment is selecting all pods. A non-empty selector is required.&#34;</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Status</span>.<span style="color:#a6e22e">ObservedGeneration</span> &lt; <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Generation</span> {
+			<span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Status</span>.<span style="color:#a6e22e">ObservedGeneration</span> = <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Generation</span>
+			<span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">AppsV1</span>().<span style="color:#a6e22e">Deployments</span>(<span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Namespace</span>).<span style="color:#a6e22e">UpdateStatus</span>(<span style="color:#a6e22e">d</span>)
+		}
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+
+	<span style="color:#75715e">// List ReplicaSets owned by this Deployment, while reconciling ControllerRef
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// through adoption/orphaning.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">rsList</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getReplicaSetsForDeployment</span>(<span style="color:#a6e22e">d</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#75715e">// List all Pods owned by this Deployment, grouped by their ReplicaSet.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// Current uses of the podMap are:
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">//
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// * check if a Pod is labeled correctly with the pod-template-hash label.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// * check that no old Pods are running in the middle of Recreate Deployments.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">podMap</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getPodMapForDeployment</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">DeletionTimestamp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncStatusOnly</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	}
+
+	<span style="color:#75715e">// Update deployment conditions with an Unknown condition when pausing/resuming
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// a deployment. In this way, we can be sure that we won&#39;t timeout when a user
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// resumes a Deployment with a set progressDeadlineSeconds.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">checkPausedConditions</span>(<span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Paused</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">sync</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	}
+
+	<span style="color:#75715e">// rollback is not re-entrant in case the underlying replica sets are updated with a new
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// revision so we should ensure that we won&#39;t proceed to update replica sets until we
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// make sure that the deployment has cleaned up its rollback spec in subsequent enqueues.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">getRollbackTo</span>(<span style="color:#a6e22e">d</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rollback</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	}
+
+	<span style="color:#a6e22e">scalingEvent</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">isScalingEvent</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">scalingEvent</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">sync</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	}
+
+	<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Strategy</span>.<span style="color:#a6e22e">Type</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">RecreateDeploymentStrategyType</span>:
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rolloutRecreate</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>, <span style="color:#a6e22e">podMap</span>)
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">RollingUpdateDeploymentStrategyType</span>:
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">rolloutRolling</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unexpected deployment strategy type: %s&#34;</span>, <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Strategy</span>.<span style="color:#a6e22e">Type</span>)
+}
+</code></pre></div><p>主要逻辑如下：</p>
+<ol>
+<li>
+<p>从queue中拿到key，通过key得到deployment name和namespace</p>
+</li>
+<li>
+<p>然后通过<code>deployment, err := dc.dLister.Deployments(namespace).Get(name)</code>得到deployment资源</p>
+</li>
+<li>
+<p>通过deployment得到与之对应的replicaset list.<code>rsList, err := dc.getReplicaSetsForDeployment(d)</code></p>
+</li>
+<li>
+<p>然后通过<code>podMap, err := dc.getPodMapForDeployment(d, rsList)</code> 来获取deployment对应的 pod</p>
+</li>
+<li>
+<p>然后通过<code>getRollbackTo</code>和<code>isScalingEvent</code> 分别判断deployment是否处于这两个状态，如果是这执行对应的操作，直到完成才能进入6.</p>
+</li>
+<li>
+<p>最后通过Strategy来判断本次deployment 所要做的操作是<code>RecreateDeploymentStrategyType</code>还是<code>RollingUpdateDeploymentStrategyType</code>。</p>
+</li>
+</ol>
+<p>进入RecreateDeploymentStrategyType 进行分析：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/controller/deployment/recreate.go:27
+</span><span style="color:#75715e"></span><span style="color:#75715e">// rolloutRecreate implements the logic for recreating a replica set.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">rolloutRecreate</span>(<span style="color:#a6e22e">d</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">Deployment</span>, <span style="color:#a6e22e">rsList</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">ReplicaSet</span>, <span style="color:#a6e22e">podMap</span> <span style="color:#66d9ef">map</span>[<span style="color:#a6e22e">types</span>.<span style="color:#a6e22e">UID</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#75715e">// Don&#39;t create a new RS if not already existed, so that we avoid scaling up before scaling down.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getAllReplicaSetsAndSyncRevision</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>, <span style="color:#66d9ef">false</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">allRSs</span> <span style="color:#f92672">:=</span> append(<span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">newRS</span>)
+	<span style="color:#a6e22e">activeOldRSs</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">controller</span>.<span style="color:#a6e22e">FilterActiveReplicaSets</span>(<span style="color:#a6e22e">oldRSs</span>)
+
+	<span style="color:#75715e">// scale down old replica sets.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">scaledDown</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">scaleDownOldReplicaSetsForRecreate</span>(<span style="color:#a6e22e">activeOldRSs</span>, <span style="color:#a6e22e">d</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">scaledDown</span> {
+		<span style="color:#75715e">// Update DeploymentStatus.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	}
+
+	<span style="color:#75715e">// Do not process a deployment when it has old pods running.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">oldPodsRunning</span>(<span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">podMap</span>) {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	}
+
+	<span style="color:#75715e">// If we need to create a new RS, create it now.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">newRS</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getAllReplicaSetsAndSyncRevision</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>, <span style="color:#66d9ef">true</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#a6e22e">allRSs</span> = append(<span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">newRS</span>)
+	}
+
+	<span style="color:#75715e">// scale up new replica set.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">scaleUpNewReplicaSetForRecreate</span>(<span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">util</span>.<span style="color:#a6e22e">DeploymentComplete</span>(<span style="color:#a6e22e">d</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Status</span>) {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">cleanupDeployment</span>(<span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+	<span style="color:#75715e">// Sync deployment status.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+}
+</code></pre></div><p>该模块逻辑很明晰：</p>
+<ol>
+<li>
+<p>获取新旧repliaceset list</p>
+</li>
+<li>
+<p>scale down 老的replicaset，将他的replicas设置为0，当然第一次创建的时候是没有老ReplicaSet的</p>
+</li>
+<li>
+<p>如果第一次创建，那么需要去创建对应的ReplicaSet</p>
+</li>
+<li>
+<p>创建完毕对应的ReplicaSet后 扩容ReplicaSet 到对应的值</p>
+</li>
+<li>
+<p>等待新建的创建完毕，清理老的ReplcaiSet</p>
+</li>
+<li>
+<p>更新Deployment Status</p>
+</li>
+</ol>
+<p>进入RollingUpdateDeploymentStrategyType 进行分析：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// rolloutRolling implements the logic for rolling a new replica set.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">dc</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DeploymentController</span>) <span style="color:#a6e22e">rolloutRolling</span>(<span style="color:#a6e22e">d</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">Deployment</span>, <span style="color:#a6e22e">rsList</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">apps</span>.<span style="color:#a6e22e">ReplicaSet</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">getAllReplicaSetsAndSyncRevision</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsList</span>, <span style="color:#66d9ef">true</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">allRSs</span> <span style="color:#f92672">:=</span> append(<span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">newRS</span>)
+
+	<span style="color:#75715e">// Scale up, if we can.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">scaledUp</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">reconcileNewReplicaSet</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">scaledUp</span> {
+		<span style="color:#75715e">// Update DeploymentStatus
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	}
+
+	<span style="color:#75715e">// Scale down, if we can.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">scaledDown</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">reconcileOldReplicaSets</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">controller</span>.<span style="color:#a6e22e">FilterActiveReplicaSets</span>(<span style="color:#a6e22e">oldRSs</span>), <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">scaledDown</span> {
+		<span style="color:#75715e">// Update DeploymentStatus
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">deploymentutil</span>.<span style="color:#a6e22e">DeploymentComplete</span>(<span style="color:#a6e22e">d</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Status</span>) {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">cleanupDeployment</span>(<span style="color:#a6e22e">oldRSs</span>, <span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+	<span style="color:#75715e">// Sync deployment status
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dc</span>.<span style="color:#a6e22e">syncRolloutStatus</span>(<span style="color:#a6e22e">allRSs</span>, <span style="color:#a6e22e">newRS</span>, <span style="color:#a6e22e">d</span>)
+}
+</code></pre></div><p>1.获取新旧replicaset</p>
+<p>2.scale up 新的replicaset，将其replicas设置为指定值</p>
+<p>3.scale down 老的replicaset，将其replicas设置为0</p>
+<p>4.更新deployment 状态</p>
+<h3 id="heading-4">总结</h3>
+<p>deployment 的本质是控制 replicaSet，replicaSet 会控制 pod，然后由 controller 驱动各个对象达到期望状态。</p>
+<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D128E0043F184394903E4645A7D5DE52/43" alt="deployment replicaset pod关系">
+DeploymentController 是 Deployment 资源的控制器，其通过 DeploymentInformer(add事件,update事件,delete事件)、ReplicaSetInformer(add事件 update事件 ,delete事件)、PodInformer(delete事件)
+来执行循环Loop操作。</p>
+<p>当deployment更新时，deployment controller会调用replicaset controller逻辑，先将老的replicaset 副本数量设置为0，再启动一个新的replicasset，来
+启动指定数量的pod，最后更新deployment状态</p>
+<p>当deployment 发送rollingupdate时，先启动新的replicaset，将replicas设置为指定数量之，
+然后再将老的replicaset，将replicas设置为0,最后更新deployment状态</p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/api-server-source-read/" data-toggle="tooltip" data-placement="top" title="K8S Api Server 源码分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
