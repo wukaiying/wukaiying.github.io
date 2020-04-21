@@ -82,8 +82,8 @@
 </ul>
 <h3 id="api-server">Api Server架构</h3>
 <p>kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。</p>
-<p>api server 架构从上到下可以分为以下几层：
-<img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/AFC5DF3117A141908944858B534E8004/40" alt="api server架构图"></p>
+<p>api server 架构从上到下可以分为以下几层：</p>
+<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/AFC5DF3117A141908944858B534E8004/40" alt="api server架构图"></p>
 <h4 id="1apiapi">1.Api层，主要包含三种api</h4>
 <p>core api: 主要在/api/v1下</p>
 <p>分组api: 其path为/apis/$NAME/$VERSION</p>

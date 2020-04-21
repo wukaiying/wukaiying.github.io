@@ -49,7 +49,8 @@ func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeCon
       <description>版本环境   kubernetes版本：kubernetes:v1.16.0
   go环境：go version go1.13.4 darwin/amd64
   Api Server架构 kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。
-api server 架构从上到下可以分为以下几层： 1.Api层，主要包含三种api core api: 主要在/api/v1下
+api server 架构从上到下可以分为以下几层：
+1.Api层，主要包含三种api core api: 主要在/api/v1下
 分组api: 其path为/apis/$NAME/$VERSION
 暴露系统状态的api: 如/metrics,/healthz,/logs,/openapi等
 $ curl -k https://127.0.0.1:56521 { &amp;#34;paths&amp;#34;: [ &amp;#34;/api&amp;#34;, &amp;#34;/api/v1&amp;#34;, &amp;#34;/apis&amp;#34;, &amp;#34;/apis/&amp;#34;, &amp;#34;/apis/admissionregistration.k8s.io&amp;#34;, &amp;#34;/apis/admissionregistration.k8s.io/v1beta1&amp;#34;, ... &amp;#34;/healthz&amp;#34;, &amp;#34;/healthz/autoregister-completion&amp;#34;, &amp;#34;/healthz/etcd&amp;#34;, ... &amp;#34;/logs&amp;#34;, &amp;#34;/metrics&amp;#34;, &amp;#34;/openapi/v2&amp;#34;, &amp;#34;/swagger-2.0.0.json&amp;#34;, &amp;#34;/swaggerapi&amp;#34;, &amp;#34;/version&amp;#34; 2.访问控制层 当用户访问api接口时，访问控制层将会做如下校验：

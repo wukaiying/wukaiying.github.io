@@ -67,6 +67,7 @@
         <li><a href="#heading-2">代码总体解析</a></li>
         <li><a href="#deployment-controller">deployment controller</a></li>
         <li><a href="#heading-4">总结</a></li>
+        <li><a href="#heading-5">参考</a></li>
       </ul>
     </li>
   </ul>
@@ -748,16 +749,18 @@ maxAvailable = replicas(10) + MaxSurge（3） = 13
 <p>此时oldRS需要减少maxUnavailable=2个pod, 然后newRS pod增加2个，直到newRs Pod为10，oldRs pod为0，完成rollingupdate。</p>
 <h3 id="heading-4">总结</h3>
 <p>deployment 的本质是控制 replicaSet，replicaSet 会控制 pod，然后由 controller 驱动各个对象达到期望状态。</p>
-<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D128E0043F184394903E4645A7D5DE52/43" alt="deployment replicaset pod关系">
-DeploymentController 是 Deployment 资源的控制器，其通过 DeploymentInformer(add事件,update事件,delete事件)、ReplicaSetInformer(add事件 update事件 ,delete事件)、PodInformer(delete事件)
+<p><img src="https://note.youdao.com/yws/public/resource/b06c3516972b1b8fcadb4e167872c64e/xmlnote/D128E0043F184394903E4645A7D5DE52/43" alt="deployment replicaset pod关系"></p>
+<p>DeploymentController 是 Deployment 资源的控制器，其通过 DeploymentInformer(add事件,update事件,delete事件)、ReplicaSetInformer(add事件 update事件 ,delete事件)、PodInformer(delete事件)
 来执行循环Loop操作。</p>
-<p>deploment</p>
 <p>当deployment recreate时，deployment controller会调用replicaset controller逻辑，先将老的replicaset 副本数量设置为0，再启动一个新的replicasset，来
 启动指定数量的pod，最后更新deployment状态</p>
 <p>当deployment 发送rollingupdate时，先启动新的replicaset，将replicas设置为指定数量，
 然后再将老的replicaset，replicas设置为0,最后更新deployment状态</p>
 <p>最后，deployment controller并不会直接控制pod的创建和删除，而是通过新建replicaset,并修改副本个数的方式来实现pod的更新与删除。
 接下来我们会看replicaset是如何控制pod的创建和删除，更新的。</p>
+<h3 id="heading-5">参考</h3>
+<p><a href="https://yq.aliyun.com/articles/688622">https://yq.aliyun.com/articles/688622</a>
+<a href="https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/deployment_controller.html">https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/deployment_controller.html</a></p>
 
     </article>
 
