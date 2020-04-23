@@ -648,29 +648,29 @@ spec:
 <p>如果pod被标记为待删除，则不进行调度</p>
 </li>
 <li>
-<p>加载调度策略，通过sched.schedule来对pod进行调度，如果调度成功会得到一个node节点名称（此时已经经过预选和优选完成）
-3.1 预选优选流程</p>
-<ul>
-<li>pod做一些前置过滤</li>
-<li>获取node数量 numNodes := g.cache.NodeTree().NumNodes()</li>
-<li>执行预选算法，得到可用的node filteredNodes。filteredNodes = g.findNodesThatFit(pluginContext, pod)</li>
-<li>如果预选完成没有合适的node,如果只有一个Node,则直接返回该node</li>
-<li>在优选函数中传入pod信息，和符合条件的node信息，进行优选</li>
-<li>通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度</li>
-</ul>
+<p>加载调度策略，通过sched.schedule来对pod进行调度，如果调度成功会得到一个node节点名称（此时已经经过预选和优选完成）</p>
 </li>
-<li>
-<p>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度。
-4.1 抢占流程</p>
-<ul>
-<li>pod做一些前置过滤</li>
-<li>获取node数量 numNodes := g.cache.NodeTree().NumNodes()</li>
-<li>执行预选算法，得到可用的node filteredNodes。filteredNodes = g.findNodesThatFit(pluginContext, pod)</li>
-<li>如果预选完成没有合适的node,如果只有一个Node,则直接返回该node</li>
-<li>在优选函数中传入pod信息，和符合条件的node信息，进行优选</li>
-<li>通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度</li>
-</ul>
-</li>
+</ol>
+<p>3.1 预选优选流程</p>
+<pre><code>- pod做一些前置过滤
+- 获取node数量 numNodes := g.cache.NodeTree().NumNodes()
+- 执行预选算法，得到可用的node filteredNodes。filteredNodes = g.findNodesThatFit(pluginContext, pod)
+- 如果预选完成没有合适的node,如果只有一个Node,则直接返回该node
+- 在优选函数中传入pod信息，和符合条件的node信息，进行优选
+- 通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度
+</code></pre>
+<ol start="4">
+<li>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度。</li>
+</ol>
+<p>4.1 抢占流程</p>
+<pre><code> - pod做一些前置过滤
+ - 获取node数量 numNodes := g.cache.NodeTree().NumNodes()
+ - 执行预选算法，得到可用的node filteredNodes。filteredNodes = g.findNodesThatFit(pluginContext, pod)
+ - 如果预选完成没有合适的node,如果只有一个Node,则直接返回该node
+ - 在优选函数中传入pod信息，和符合条件的node信息，进行优选
+ - 通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度
+</code></pre>
+<ol start="5">
 <li>
 <p>执行绑定操作，也就是将pod.Spec.NodeName设置为选出来的node</p>
 </li>
