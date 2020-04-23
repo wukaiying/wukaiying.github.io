@@ -660,7 +660,7 @@ spec:
 - 通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度
 </code></pre>
 <ol start="4">
-<li>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度。</li>
+<li>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度</li>
 </ol>
 <p>4.1 抢占流程</p>
 <pre><code> - pod做一些前置过滤
@@ -675,10 +675,10 @@ spec:
 <p>执行绑定操作，也就是将pod.Spec.NodeName设置为选出来的node</p>
 </li>
 <li>
-<p>得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd,下一个组件Kubelet watch api server，完成pod创建。</p>
+<p>得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd,下一个组件Kubelet watch api server，完成pod创建</p>
 </li>
 </ol>
-<p>调用链：</p>
+<p>具体方法调用链：</p>
 <p>cmd/kube-scheduler/scheduler.go:32 NewSchedulerCommand()</p>
 <pre><code>                ||
 </code></pre>
