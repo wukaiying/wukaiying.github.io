@@ -641,10 +641,15 @@ spec:
 <p>整个调度流程图可以用下面这幅图描述</p>
 <p><img src="https://pic.images.ac.cn/image/5ea033588dfb4.html" alt="scheduler调度流程图"></p>
 <ol>
-<li>从待调度队列中取出一个pod，这块背后是由SchedulingQueue该模块实现，暂不进行深入分析</li>
-<li>如果pod被标记为待删除，则不进行调度</li>
-<li>加载调度策略，通过sched.schedule来对pod进行调度，如果调度成功会得到一个node节点名称（此时已经经过预选和优选完成）
-3.1 预选优选流程
+<li>
+<p>从待调度队列中取出一个pod，这块背后是由SchedulingQueue该模块实现，暂不进行深入分析</p>
+</li>
+<li>
+<p>如果pod被标记为待删除，则不进行调度</p>
+</li>
+<li>
+<p>加载调度策略，通过sched.schedule来对pod进行调度，如果调度成功会得到一个node节点名称（此时已经经过预选和优选完成）
+3.1 预选优选流程</p>
 <ul>
 <li>pod做一些前置过滤</li>
 <li>获取node数量 numNodes := g.cache.NodeTree().NumNodes()</li>
@@ -654,8 +659,9 @@ spec:
 <li>通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度</li>
 </ul>
 </li>
-<li>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度。
-4.1 抢占流程
+<li>
+<p>如果调度失败，查看返回的错误中，该pod是否启动了抢占策略，如果没有则什么也不做，当pod再次被更新需要重新调度时，pod重新入队，重新调度。
+4.1 抢占流程</p>
 <ul>
 <li>pod做一些前置过滤</li>
 <li>获取node数量 numNodes := g.cache.NodeTree().NumNodes()</li>
@@ -665,17 +671,24 @@ spec:
 <li>通过打分机制选择出最合适的node，host= g.selectHost(priorityList)，完成scheduler调度</li>
 </ul>
 </li>
-<li>执行绑定操作，也就是将pod.Spec.NodeName设置为选出来的node</li>
-<li>得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd,下一个组件Kubelet watch api server，完成pod创建。</li>
+<li>
+<p>执行绑定操作，也就是将pod.Spec.NodeName设置为选出来的node</p>
+</li>
+<li>
+<p>得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd,下一个组件Kubelet watch api server，完成pod创建。</p>
+</li>
 </ol>
-<p>调用链：
-cmd/kube-scheduler/scheduler.go:32 NewSchedulerCommand()
-||
-cmd/kube-scheduler/app/server.go:116 runCommand() runCommand方法主要作用是校验scheduler 配置参数，生成scheduler配置文件，并通过Run方法来启动scheduler。
-||
-cmd/kube-scheduler/app/server.go:165 Run()  启动scheduler
-||
-pkg/scheduler/scheduler.go:315 sched.scheduleOne()  执行预选，优选，抢占，得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd.</p>
+<p>调用链：</p>
+<p>cmd/kube-scheduler/scheduler.go:32 NewSchedulerCommand()</p>
+<pre><code>                ||
+</code></pre>
+<p>cmd/kube-scheduler/app/server.go:116 runCommand() runCommand方法主要作用是校验scheduler 配置参数，生成scheduler配置文件，并通过Run方法来启动scheduler</p>
+<pre><code>                ||
+</code></pre>
+<p>cmd/kube-scheduler/app/server.go:165 Run()  启动scheduler</p>
+<pre><code>                ||
+</code></pre>
+<p>pkg/scheduler/scheduler.go:315 sched.scheduleOne()  执行预选，优选，抢占，得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd</p>
 
     </article>
 
