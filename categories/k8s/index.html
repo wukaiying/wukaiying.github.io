@@ -45,6 +45,31 @@
   <div class="main" role="main">
     <section class="list taxonomy-list">
       <article class="article">
+        <a href="/k8s/kube-scheduler-source-code-read/" class="article-titles">
+          <h2 class="article-title">K8S Scheduler 源码分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 22, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 kube-scheduler 是master节点中重要的组件之一，它同watch接口监听api server中需要调度的pod，然后通过其预选，优选算法来确定pod需要被调度到哪个节点上去。
+看一下官方对scheduler 调度流程的描述：The Kubernetes Scheduler
+主要步骤如下：
+ 首先通过预选阶段过滤掉不合适的节点，例如根据podSpec中对系统资源的需求，会计算出所有节点剩余的资源是否可以满足pod需求，如果不满足则该节点会被抛弃。 其次通过预选阶段的节点，会再次进行优选。比如在满足pod资源需求的基础上，会优选出当前负载最小节点，保证每个集群节点资源被均衡使用。 最后选择打分最高的节点作为目标节点，如果得分相同则会随机选择一个，进行调度。  For given pod: +---------------------------------------------+ | Schedulable nodes: | | | | +--------+ +--------+ +--------+ | | | node 1 | | node 2 | | node 3 | | | +--------+ +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Pred. filters: node 3 doesn't have enough resource +-------------------+-------------------------+ | | v +-------------------+-------------------------+ | remaining nodes: | | +--------+ +--------+ | | | node 1 | | node 2 | | | +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Priority function: node 1: p=2 node 2: p=5 +-------------------+-------------------------+ | | v select max{node priority} = node 2 入口 scheduler使用cobra创建命令行客户端，进入NewSchedulerCommand
+        </div>
+        <div class="article-readmore"><a href="/k8s/kube-scheduler-source-code-read/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/replicaset-source-code-read/" class="article-titles">
           <h2 class="article-title">Replica Set Controller 源码分析</h2>
           

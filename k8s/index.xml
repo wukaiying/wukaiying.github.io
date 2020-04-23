@@ -7,10 +7,24 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Tue, 21 Apr 2020 15:53:20 +0800</lastBuildDate>
+    <lastBuildDate>Wed, 22 Apr 2020 13:56:37 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/k8s/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>K8S Scheduler 源码分析</title>
+      <link>https://wukaiying.github.io/k8s/kube-scheduler-source-code-read/</link>
+      <pubDate>Wed, 22 Apr 2020 13:56:37 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/kube-scheduler-source-code-read/</guid>
+      <description>版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 kube-scheduler 是master节点中重要的组件之一，它同watch接口监听api server中需要调度的pod，然后通过其预选，优选算法来确定pod需要被调度到哪个节点上去。
+看一下官方对scheduler 调度流程的描述：The Kubernetes Scheduler
+主要步骤如下：
+ 首先通过预选阶段过滤掉不合适的节点，例如根据podSpec中对系统资源的需求，会计算出所有节点剩余的资源是否可以满足pod需求，如果不满足则该节点会被抛弃。 其次通过预选阶段的节点，会再次进行优选。比如在满足pod资源需求的基础上，会优选出当前负载最小节点，保证每个集群节点资源被均衡使用。 最后选择打分最高的节点作为目标节点，如果得分相同则会随机选择一个，进行调度。  For given pod: +---------------------------------------------+ | Schedulable nodes: | | | | +--------+ +--------+ +--------+ | | | node 1 | | node 2 | | node 3 | | | +--------+ +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Pred. filters: node 3 doesn&#39;t have enough resource +-------------------+-------------------------+ | | v +-------------------+-------------------------+ | remaining nodes: | | +--------+ +--------+ | | | node 1 | | node 2 | | | +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Priority function: node 1: p=2 node 2: p=5 +-------------------+-------------------------+ | | v select max{node priority} = node 2 入口 scheduler使用cobra创建命令行客户端，进入NewSchedulerCommand</description>
+    </item>
     
     <item>
       <title>Replica Set Controller 源码分析</title>
