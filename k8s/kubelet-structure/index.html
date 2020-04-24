@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Kubelet 架构分析 - Kaiying</title>
+  <meta property="og:title" content="Kubelet 架构分析 - Kaiying" />
+  <meta name="twitter:title" content="Kubelet 架构分析 - Kaiying" />
+  <meta name="description" content="k8s scheduler 源码分析">
+  <meta property="og:description" content="k8s scheduler 源码分析">
+  <meta name="twitter:description" content="k8s scheduler 源码分析">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/kubelet-structure/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Kubelet 架构分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 23, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+      <h3 id="heading">版本环境</h3>
+<ul>
+<li>
+<p>kubernetes版本：kubernetes:v1.16.0</p>
+</li>
+<li>
+<p>go环境：go version go1.13.4 darwin/amd64</p>
+</li>
+</ul>
+<h3 id="heading-1">前言</h3>
+<p>kubelet是k8s集群中节点的代理人，通过watch api server，来处理发送给本节点的任务，看一下官方对kubelet的描述：</p>
+<pre><code>The kubelet is the primary &quot;node agent&quot; that runs on each
+node. It can register the node with the apiserver using one of: the hostname; a flag to
+override the hostname; or specific logic for a cloud provider.
+
+The kubelet works in terms of a PodSpec. A PodSpec is a YAML or JSON object
+that describes a pod. The kubelet takes a set of PodSpecs that are provided through
+various mechanisms (primarily through the apiserver) and ensures that the containers
+described in those PodSpecs are running and healthy. The kubelet doesn't manage
+containers which were not created by Kubernetes.
+
+Other than from an PodSpec from the apiserver, there are three ways that a container
+manifest can be provided to the Kubelet.
+
+File: Path passed as a flag on the command line. Files under this path will be monitored
+periodically for updates. The monitoring period is 20s by default and is configurable
+via a flag.
+
+HTTP endpoint: HTTP endpoint passed as a parameter on the command line. This endpoint
+is checked every 20 seconds (also configurable with a flag).
+
+HTTP server: The kubelet can also listen for HTTP and respond to a simple API
+(underspec'd currently) to submit a new manifest.
+</code></pre><p>总结一下kubelet主要作用：</p>
+<ul>
+<li>kubelet是每个node上的代理人，它将node注册到api server中。</li>
+<li>kubelet 通过watch api server得到pod spec中的描述信息，根据podSpec中的内容启动容器，并负责验证container服务是否在正常运行，以及服务是否健康。</li>
+<li>对于集群中非kubelete启动的容器，kubelete不负责管理。</li>
+</ul>
+<h3 id="kubelet">从kubelet监听端口开始</h3>
+<p>kubectl不同于其他组件，它通过二进制方式部署运行</p>
+<pre><code># 查看当前节点kubelet运行状态
+$ systemctl status kubelet
+</code></pre><p>查看kubelet监听端口</p>
+<pre><code>$ netstat -antp | grep kubelet
+
+LISTEN     0      128          *:10250                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=28))
+LISTEN     0      128          *:10255                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=26))
+LISTEN     0      128          *:4194                     *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=13))
+LISTEN     0      128    127.0.0.1:10248                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=23))
+
+10250  –port:           kubelet server 与 apiserver 通信的端口，定期请求 apiserver 获取自己所应当处理的任务，通过该端口可以访问获取 node 资源以及状态。
+10248  –healthz-port:   通过访问该端口可以判断 kubelet 是否正常工作, 通过 kubelet 的启动参数 --healthz-port 和 --healthz-bind-address 来指定监听的地址和端口。
+10255  –read-only-port: 提供了 pod 和 node 的信息，接口以只读形式暴露出去，访问该端口不需要认证和鉴权。
+4194   –cadvisor-port:  通过该端口可以获取到该节点的环境信息以及 node 上运行的容器状态,访问 http://localhost:4194 可以看到 cAdvisor 的管理界面
+</code></pre><h3 id="kubelet-">kubelet 架构图</h3>
+<p><img src="https://pic.images.ac.cn/image/5ea1470ebe61c.html" alt="kubelet架构图"></p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/kube-scheduler-source-code-read/" data-toggle="tooltip" data-placement="top" title="K8S Scheduler 源码分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>

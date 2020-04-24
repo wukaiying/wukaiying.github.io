@@ -66,6 +66,7 @@
         <li><a href="#heading-1">前言</a></li>
         <li><a href="#heading-2">入口</a></li>
         <li><a href="#heading-3">总结</a></li>
+        <li><a href="#heading-4">后续</a></li>
       </ul>
     </li>
   </ul>
@@ -603,7 +604,7 @@ spec:
 		<span style="color:#a6e22e">FeasibleNodes</span>:  len(<span style="color:#a6e22e">filteredNodes</span>),
 	}, <span style="color:#a6e22e">err</span>
 }
-</code></pre></div><p>最后，kube-scheduler在执行预选和优选过程中，使用的是默认提供的调度算法，位置如下：</p>
+</code></pre></div><p>最后，kube-scheduler在执行预选和优选过程中默认提供的调度算法，位置如下：</p>
 <div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// pkg/scheduler/algorithmprovider/defaults/defaults.go
 </span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">defaultPredicates</span>() <span style="color:#a6e22e">sets</span>.<span style="color:#a6e22e">String</span> {
     <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">sets</span>.<span style="color:#a6e22e">NewString</span>(
@@ -636,8 +637,259 @@ spec:
         <span style="color:#a6e22e">priorities</span>.<span style="color:#a6e22e">ImageLocalityPriority</span>,
     )
 }
-
-</code></pre></div><h3 id="heading-3">总结</h3>
+</code></pre></div><p>这里我将主要的策略罗列并解释一下：</p>
+<p>Predicates 预选策略是一组filter chain，所有node会经过file chain来层层过滤，最终筛选出合适的节点。</p>
+<p><em>一般策略</em></p>
+<table>
+<thead>
+<tr>
+<th><strong>策略</strong></th>
+<th><strong>描述</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PodFitsResources</td>
+<td>用于判断当前node的资源是否满足pod的request的资源条件</td>
+<td></td>
+</tr>
+<tr>
+<td>PodFitsHost</td>
+<td>用于判断当前node的名字是否满足pod所指定的nodeName</td>
+<td></td>
+</tr>
+<tr>
+<td>PodFitsHostPorts</td>
+<td>Pod对象拥有spec.hostPort属性时,用于判断当前node可用的端口是否满足pod所要求的端口占用</td>
+<td></td>
+</tr>
+<tr>
+<td>PodMatchNodeSelector</td>
+<td>用于判断当前node是否匹配pod所定义的nodeSelector或者nodeAffinity</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><em>Volume相关策略</em></p>
+<table>
+<thead>
+<tr>
+<th><strong>策略</strong></th>
+<th><strong>描述</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NoDiskConflict</td>
+<td>用于判断多个pod所声明的volume是否有冲突，默认没有启用</td>
+<td></td>
+</tr>
+<tr>
+<td>MaxPDVolumeCountPredicate</td>
+<td>用于判断某种volume是否已经超过所指定的数目</td>
+<td></td>
+</tr>
+<tr>
+<td>VolumeBindingPredicate</td>
+<td>用于检查pod所定义的volume的nodeAffinity是否与node的标签所匹配</td>
+<td></td>
+</tr>
+<tr>
+<td>NoVolumeZoneConflict</td>
+<td>检查给定的zone限制前提下，检查如果在此主机上部署Pod是否存在卷冲突</td>
+<td></td>
+</tr>
+<tr>
+<td>NoVolumeNodeConflict</td>
+<td>检查给定的Node限制前提下，检查如果在此主机上部署Pod是否存在卷冲突</td>
+<td></td>
+</tr>
+<tr>
+<td>MaxEBSVolumeCount</td>
+<td>确保已挂载的EBS存储卷不超过设置的最大值，默认39</td>
+<td></td>
+</tr>
+<tr>
+<td>MaxGCEPDVolumeCount</td>
+<td>确保已挂载的GCE存储卷不超过设置的最大值，默认16</td>
+<td></td>
+</tr>
+<tr>
+<td>MaxAzureDiskVolumeCount</td>
+<td>确保已挂载的Azure存储卷不超过设置的最大值，默认16</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckVolumeBinding</td>
+<td>检查节点上已绑定和未绑定的PVC是否满足需求</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><em>Node相关策略</em></p>
+<table>
+<thead>
+<tr>
+<th><strong>策略</strong></th>
+<th><strong>描述</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MatchNodeSelector</td>
+<td>Pod对象拥有spec.nodeSelector属性时，检查Node节点的label定义是否满足Pod的NodeSelector属性需求</td>
+<td></td>
+</tr>
+<tr>
+<td>HostName</td>
+<td>如果Pod对象拥有spec.hostname属性，则检查节点名称是不是Pod指定的NodeName</td>
+<td></td>
+</tr>
+<tr>
+<td>PodToleratesNodeTaints</td>
+<td>Pod对象拥有spec.tolerations属性时，仅关注NoSchedule和NoExecute两个效用标识的污点</td>
+<td></td>
+</tr>
+<tr>
+<td>PodToleratesNodeNoExecuteTaints	P</td>
+<td>od对象拥有spec.tolerations属性时，，是否能接纳节点的NoExecute类型污点,默认没有启用</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckNodeLabelPresence</td>
+<td>仅检查节点上指定的所有标签的存在性,默认没有启用</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckServiceAffinity</td>
+<td>将相同Service的Pod对象放置在同一个或同一类节点上以提高效率,默认没有启用</td>
+<td></td>
+</tr>
+<tr>
+<td>NodeMemoryPressurePredicate</td>
+<td>检查当前node的内存是否充足，只有充足的时候才会调度到该node</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckNodeMemoryPressure</td>
+<td>检查节点内存压力，如果压力过大，那就不会将pod调度至此</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckNodeDiskPressure</td>
+<td>检查节点磁盘资源压力，如果压力过大，那就不会将pod调度至此</td>
+<td></td>
+</tr>
+<tr>
+<td>GeneralPredicates</td>
+<td>检查pod与主机上kubernetes相关组件是否匹配</td>
+<td></td>
+</tr>
+<tr>
+<td>CheckNodeCondition</td>
+<td>检查是否可以在节点报告磁盘、网络不可用或未准备好时将Pod调度其上</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><em>Pod相关策略</em></p>
+<table>
+<thead>
+<tr>
+<th><strong>策略</strong></th>
+<th><strong>描述</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PodAffinityPredicate</td>
+<td>用于检查pod和该node上的pod是否和affinity以及anti-affinity规则匹配</td>
+<td></td>
+</tr>
+<tr>
+<td>MatchInterPodAffinity</td>
+<td>检查节点是否满足Pod对象亲和性或反亲和性条件</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>当然对于上面的规则链调用是有一定顺序的，通常跟node相关的规则会先计算，这样就可以避免一些没有必要的规则校验，比如在一个内存严重不足的node上面计算pod的affinity是没有意义的。有一个问题这么多调用链，如果待选择的node节点很多会不会
+导致过滤很慢，过滤函数启动多个goroutine并行计算来对node进行过滤，所以过滤速度可以得到保证。</p>
+<p>经过预选策略得到一组待选node后进入优选策略</p>
+<p>kubernetes用一组优先级函数处理每一个待选的主机。每一个优先级函数会返回一个0-10的分数，分数越高表示主机越“好”，同时每一个函数也会对应一个表示权重的值。最终主机的得分用以下公式计算得出：</p>
+<pre><code>finalScoreNode = (weight1 * priorityFunc1) + (weight2 * priorityFunc2) + … + (weightn * priorityFuncn)
+</code></pre><p>Priorites策略也在随着版本演进而丰富，v1.0版本仅支持3个策略，v1.7支持10个策略，每项策略都有对应权重，最终根据权重计算节点总分。目前可用的Priorites策略有：</p>
+<table>
+<thead>
+<tr>
+<th><strong>策略</strong></th>
+<th><strong>描述</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SelectorSpreadPriority</td>
+<td>对于属于同一个service、replication controller的Pod，尽量分散在不同的主机上。如果指定了区域，则会尽量把Pod分散在不同区域的不同主机上。调度一个Pod的时候，先查找Pod对于的service或者replication controller，然后查找service或replication controller中已存在的Pod，主机上运行的已存在的Pod越少，主机的打分越高</td>
+<td></td>
+</tr>
+<tr>
+<td>LeastRequestedPriority</td>
+<td>如果新的pod要分配给一个节点，这个节点的优先级就由节点空闲的那部分与总容量的比值（即（总容量-节点上pod的容量总和-新pod的容量）/总容量）来决定。CPU和memory权重相当，比值最大的节点的得分最高。需要注意的是，这个优先级函数起到了按照资源消耗来跨节点分配pods的作用。计算公式如下：cpu((capacity – sum(requested)) * 10 / capacity) + memory((capacity – sum(requested)) * 10 / capacity) / 2</td>
+<td></td>
+</tr>
+<tr>
+<td>BalancedResourceAllocation</td>
+<td>尽量选择在部署Pod后各项资源更均衡的机器。BalancedResourceAllocation不能单独使用，而且必须和LeastRequestedPriority同时使用，它分别计算主机上的cpu和memory的比重，主机的分值由cpu比重和memory比重的“距离”决定。计算公式如下：10 – abs(totalCpu/cpuNodeCapacity-totalMemory/memoryNodeCapacity)*10</td>
+<td></td>
+</tr>
+<tr>
+<td>NodeAffinityPriority</td>
+<td>节点亲和性选择策略。Node Selectors（调度时将pod限定在指定节点上），支持多种操作符（In, NotIn, Exists, DoesNotExist, Gt, Lt），而不限于对节点labels的精确匹配。另外，Kubernetes支持两种类型的选择器，一种是“hard（requiredDuringSchedulingIgnoredDuringExecution）”选择器，它保证所选的主机必须满足所有Pod对主机的规则要求。这种选择器更像是之前的nodeselector，在nodeselector的基础上增加了更合适的表现语法。另一种是“soft（preferresDuringSchedulingIgnoredDuringExecution）”选择器，它作为对调度器的提示，调度器会尽量但不保证满足NodeSelector的所有要求</td>
+<td></td>
+</tr>
+<tr>
+<td>InterPodAffinityPriority</td>
+<td>pod亲和性选择策略,类似NodeAffinityPriority，提供两种选择器支持。有两个子策略podAffinity和podAntiAffinity</td>
+<td></td>
+</tr>
+<tr>
+<td>NodePreferAvoidPodsPriority(权重1W)</td>
+<td>判断alpha.kubernetes.io/preferAvoidPods属性，设置权重为10000，覆盖其他策略</td>
+<td></td>
+</tr>
+<tr>
+<td>TaintTolerationPriority</td>
+<td>使用Pod中tolerationList与Node节点Taint进行匹配，配对成功的项越多，则得分越低</td>
+<td></td>
+</tr>
+<tr>
+<td>ImageLocalityPriority</td>
+<td>根据主机上是否已具备Pod运行的环境来打分，得分计算：不存在所需镜像，返回0分，存在镜像，镜像越大得分越高。默认没有启用</td>
+<td></td>
+</tr>
+<tr>
+<td>EqualPriority</td>
+<td>EqualPriority是一个优先级函数，它给予所有节点相等的权重（优先级）</td>
+<td></td>
+</tr>
+<tr>
+<td>ServiceSpreadingPriority</td>
+<td>按Service和Replicaset归属计算Node上分布最少的同类Pod数量，得分计算：数量越少得分越高（作用于SelectorSpreadPriority相同，已经被SelectorSpreadPriority替换）</td>
+<td></td>
+</tr>
+<tr>
+<td>MostRequestedPriority</td>
+<td>在ClusterAutoscalerProvider中，替换LeastRequestedPriority，给使用多资源的节点，更高的优先级。计算公式为：(cpu(10 * sum(requested) / capacity) + memory(10 * sum(requested) / capacity)) / 2 动态伸缩集群环境比较适用，会优先调度pod到使用率最高的主机节点，这样在伸缩集群时，就会腾出空闲机器，从而进行停机处理。默认没有启用</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="heading-3">总结</h3>
 <p>整个调度流程图可以用下面这幅图描述</p>
 <p><img src="https://pic.images.ac.cn/image/5ea033588dfb4.html" alt="scheduler调度流程图"></p>
 <ol>
@@ -691,6 +943,10 @@ spec:
 <pre><code>                ||
 </code></pre>
 <p>pkg/scheduler/scheduler.go:315 sched.scheduleOne()  执行预选，优选，抢占，得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd</p>
+<h3 id="heading-4">后续</h3>
+<p>很多公司结合自己业务，有需要扩展scheduler的需求，后续我会继续在一下两个方面研究：</p>
+<p>1.scheduler 扩展实现自定义策略调度
+2.scheduler GPU调度</p>
 
     </article>
 
@@ -698,7 +954,9 @@ spec:
 
 
     <ul class="pager article-pager">
-      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-newer">
+          <a href="/k8s/kubelet-structure/" data-toggle="tooltip" data-placement="top" title="Kubelet 架构分析">&lt; Newer</a>
+      </li>
       <li class="pager-older">
         <a href="/k8s/replicaset-source-code-read/" data-toggle="tooltip" data-placement="top" title="Replica Set Controller 源码分析">Older &gt;</a>
       </li>

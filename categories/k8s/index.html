@@ -45,6 +45,29 @@
   <div class="main" role="main">
     <section class="list taxonomy-list">
       <article class="article">
+        <a href="/k8s/kubelet-structure/" class="article-titles">
+          <h2 class="article-title">Kubelet 架构分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 23, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 kubelet是k8s集群中节点的代理人，通过watch api server，来处理发送给本节点的任务，看一下官方对kubelet的描述：
+The kubelet is the primary &quot;node agent&quot; that runs on each node. It can register the node with the apiserver using one of: the hostname; a flag to override the hostname; or specific logic for a cloud provider. The kubelet works in terms of a PodSpec. A PodSpec is a YAML or JSON object that describes a pod. The kubelet takes a set of PodSpecs that are provided through various mechanisms (primarily through the apiserver) and ensures that the containers described in those PodSpecs are running and healthy.
+        </div>
+        <div class="article-readmore"><a href="/k8s/kubelet-structure/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/kube-scheduler-source-code-read/" class="article-titles">
           <h2 class="article-title">K8S Scheduler 源码分析</h2>
           

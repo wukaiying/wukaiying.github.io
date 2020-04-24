@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Wed, 22 Apr 2020 13:56:37 +0800</lastBuildDate>
+    <lastBuildDate>Thu, 23 Apr 2020 14:52:56 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/index.xml" rel="self" type="application/rss+xml" />
     
@@ -25,6 +25,18 @@ go-plugin 项目地址https://github.com/hashicorp/go-plugin
 Put(key string, value []byte) error Get(key string) ([]byte, error) ([]byte, error) 新建项目 这里我先将完整项目目录结构列出来
 . ├── Makefile ├── cmd │ ├── cmd │ ├── kv_wky │ └── main.go ├── pkg │ ├── plugins │ │ └── proto │ │ ├── plugin.pb.go │ │ └── plugin.proto │ └── shared │ ├── grpc.go │ └── plugin.go └── pluginclient ├── main.go └── pluginclient 定义proto 新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go
 syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key = 1;}message GetResponse { bytes value = 1;}message PutRequest { string key = 1; bytes value = 2;}message Empty {}service KV { rpc Get(GetRequest) returns (GetResponse); rpc Put(PutRequest) returns (Empty);} 定义对外暴露的插件接口 新建pkg/shared/plugin.</description>
+    </item>
+    
+    <item>
+      <title>Kubelet 架构分析</title>
+      <link>https://wukaiying.github.io/k8s/kubelet-structure/</link>
+      <pubDate>Thu, 23 Apr 2020 14:52:56 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/kubelet-structure/</guid>
+      <description>版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 kubelet是k8s集群中节点的代理人，通过watch api server，来处理发送给本节点的任务，看一下官方对kubelet的描述：
+The kubelet is the primary &amp;quot;node agent&amp;quot; that runs on each node. It can register the node with the apiserver using one of: the hostname; a flag to override the hostname; or specific logic for a cloud provider. The kubelet works in terms of a PodSpec. A PodSpec is a YAML or JSON object that describes a pod. The kubelet takes a set of PodSpecs that are provided through various mechanisms (primarily through the apiserver) and ensures that the containers described in those PodSpecs are running and healthy.</description>
     </item>
     
     <item>
