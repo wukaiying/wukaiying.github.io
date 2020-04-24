@@ -946,7 +946,14 @@ spec:
 <p>pkg/scheduler/scheduler.go:315 sched.scheduleOne()  执行预选，优选，抢占，得到最合适的node,将pod.spec.nodename设置为该值，提交到api server写入etcd</p>
 <h3 id="heading-4">后续</h3>
 <p>很多公司结合自己业务，有需要扩展scheduler的需求，后续我会继续在一下两个方面研究：</p>
-<p>1.scheduler 扩展实现自定义策略调度
+<p>1.scheduler 扩展实现自定义策略调度</p>
+<p>扩展例子
+example
+<a href="https://github.com/everpeace/k8s-scheduler-extender-example">k8s-scheduler-extender-example</a></p>
+<p>Gang Scheduling
+<a href="https://github.com/kubernetes-sigs/kube-batch">Kube-batch</a>, gang scheduler 是某些领域，比如大数据、批量计算场景 常用的的调度方式，即讲一组资源当成一个 group，如果有 group 够用的资源就整个调度，或者整个不调度 (而传统的 kubernetes 的调度粒度为 pod). kubebatch 试图解决此类问题，并且想把这种通用的需求变成标准，解决所有类似的问题.</p>
+<p><a href="https://github.com/AliyunContainerService/gpushare-scheduler-extender">gpushare-scheduler-extender</a>
+为 gpu share divice 扩展的 scheduler，支持多个 pod 共享 gpu显存和 card. 目前的 device 机制能注册资源总量，但是对于调度来讲，信息不太够，因此 gpushare-scheduler-extender 提供了一层 filter 帮助判断 node 上是否有足够的 gpu 资源.
 2.scheduler GPU调度</p>
 <h3 id="heading-5">参考</h3>
 <p><a href="https://kubernetes.io/zh/docs/reference/command-line-tools-reference/kube-scheduler/">https://kubernetes.io/zh/docs/reference/command-line-tools-reference/kube-scheduler/</a></p>

@@ -106,7 +106,7 @@ $ systemctl status kubelet
 LISTEN     0      128          *:10250                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=28))
 LISTEN     0      128          *:10255                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=26))
 LISTEN     0      128          *:4194                     *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=13))
-LISTEN     0      128    127.0.0.1:10248                    *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=23))
+LISTEN     0      128    127.0.0.1:10248                  *:*                   users:((&quot;kubelet&quot;,pid=48500,fd=23))
 
 10250  –port:           kubelet server 与 apiserver 通信的端口，定期请求 apiserver 获取自己所应当处理的任务，通过该端口可以访问获取 node 资源以及状态。
 10248  –healthz-port:   通过访问该端口可以判断 kubelet 是否正常工作, 通过 kubelet 的启动参数 --healthz-port 和 --healthz-bind-address 来指定监听的地址和端口。
