@@ -57,6 +57,23 @@
         </li>
       </ul>
       
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">版本环境</a></li>
+        <li><a href="#heading-1">前言</a></li>
+        <li><a href="#kubelet">从kubelet监听端口开始</a></li>
+        <li><a href="#kubelet-">kubelet 架构图</a></li>
+        <li><a href="#heading-2">源码分析入口</a></li>
+        <li><a href="#heading-3">总结</a></li>
+        <li><a href="#heading-4">参考</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
       <h3 id="heading">版本环境</h3>
 <ul>
 <li>
@@ -114,6 +131,1061 @@ LISTEN     0      128    127.0.0.1:10248                  *:*                   
 4194   –cadvisor-port:  通过该端口可以获取到该节点的环境信息以及 node 上运行的容器状态,访问 http://localhost:4194 可以看到 cAdvisor 的管理界面
 </code></pre><h3 id="kubelet-">kubelet 架构图</h3>
 <p><img src="https://pic.images.ac.cn/image/5ea1470ebe61c.html" alt="kubelet架构图"></p>
+<h3 id="heading-2">源码分析入口</h3>
+<p>从cmd开始出发</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/kubelet.go:37
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+	<span style="color:#a6e22e">command</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">app</span>.<span style="color:#a6e22e">NewKubeletCommand</span>()
+    <span style="color:#f92672">...</span>
+}
+</code></pre></div><p>进入<code>NewKubeletCommand</code>，进入<code>Run</code>方法启动<code>kubelet</code></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/app/server.go:268
+</span><span style="color:#75715e"></span><span style="color:#75715e">// run the kubelet
+</span><span style="color:#75715e"></span><span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">5</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;KubeletConfiguration: %#v&#34;</span>, <span style="color:#a6e22e">kubeletServer</span>.<span style="color:#a6e22e">KubeletConfiguration</span>)
+<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">kubeletServer</span>, <span style="color:#a6e22e">kubeletDeps</span>, <span style="color:#a6e22e">stopCh</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+    <span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatal</span>(<span style="color:#a6e22e">err</span>)
+}
+</code></pre></div><p>我们来看kubelet启动函数的主要实现：逻辑很简单，Run方法中的参数有三个，分别是kubelet server启动参数，
+kubelet dependcy 也就是kubelet需要调用的其他插件(例如VolumePlugins，ContainerManager等)，stopCh传递信号来中断
+kubelet server，否则kubelet server将一直处于运行状态</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/app/server.go:408
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">s</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">KubeletServer</span>, <span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Dependencies</span>, <span style="color:#a6e22e">stopCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{}) <span style="color:#66d9ef">error</span> {
+	<span style="color:#75715e">// To help debugging, immediately log version
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Version: %+v&#34;</span>, <span style="color:#a6e22e">version</span>.<span style="color:#a6e22e">Get</span>())
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">initForOS</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletFlags</span>.<span style="color:#a6e22e">WindowsService</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed OS init: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">run</span>(<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">stopCh</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to run Kubelet: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>进入<code>run(s, kubeDeps, stopCh)</code>看下run中主要做了什么操作
+run方法中做了很多kubelet启动之前的初始化工作，主要包括如下：</p>
+<ul>
+<li>1.设置kubelet的特性开关，使用默认的特性开关，如果要启动非默认特性，需要在kubelet启动参数中设置</li>
+<li>2.验证kubelet 中options启动参数的合法性</li>
+<li>3.获取 Kubelet Lock File？？？（这个有什么用）</li>
+<li>4.注册kubelet options中的配置项到  /configz 终端中</li>
+<li>5.初始化kubelet Dependencies</li>
+<li>6.初始化3个client出来，kubeclient, eventclient, heartbeatclient,如果是standalone模式，这三个client设置为空</li>
+<li>7.初始化Cadvisor，ContainerManager</li>
+<li>8.初始化OOMAdjuster</li>
+<li>9.调用RunKubelet，后面分析RunKubelet里面具体逻辑</li>
+<li>10.启动 Healthz http server</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/app/server.go:471
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">run</span>(<span style="color:#a6e22e">s</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">KubeletServer</span>, <span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Dependencies</span>, <span style="color:#a6e22e">stopCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{}) (<span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>) {
+	<span style="color:#75715e">// 设置kubelet的特性开关，使用默认的特性开关，如果要启动非默认特性，需要在kubelet启动参数中设置
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultMutableFeatureGate</span>.<span style="color:#a6e22e">SetFromMap</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletConfiguration</span>.<span style="color:#a6e22e">FeatureGates</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#75715e">//验证kubelet 中options启动参数的合法性
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">ValidateKubeletServer</span>(<span style="color:#a6e22e">s</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// 获取 Kubelet Lock File？？？（这个有什么用）
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ExitOnLockContention</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">New</span>(<span style="color:#e6db74">&#34;cannot exit on lock file contention: no lock file specified&#34;</span>)
+	}
+	<span style="color:#a6e22e">done</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{})
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;acquiring file lock on %q&#34;</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">flock</span>.<span style="color:#a6e22e">Acquire</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unable to acquire file lock on %q: %v&#34;</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span>, <span style="color:#a6e22e">err</span>)
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ExitOnLockContention</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;watching for inotify events for: %v&#34;</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">watchForLockfileContention</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">LockFilePath</span>, <span style="color:#a6e22e">done</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+			}
+		}
+	}
+
+	<span style="color:#75715e">// 注册kubelet options中的配置项到  /configz 终端中
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">initConfigz</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletConfiguration</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unable to register KubeletConfiguration with configz, error: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#75715e">// standaloneMode=true，此模式下kubelet不会和api server交互，用来调试
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">standaloneMode</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">true</span>
+	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeConfig</span>) &gt; <span style="color:#ae81ff">0</span> {
+		<span style="color:#a6e22e">standaloneMode</span> = <span style="color:#66d9ef">false</span>
+	}
+
+    <span style="color:#75715e">//初始化kubelet Dependencies
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">UnsecuredDependencies</span>(<span style="color:#a6e22e">s</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+    <span style="color:#75715e">//获取当前节点的hostname和nodename
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">hostName</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nodeutil</span>.<span style="color:#a6e22e">GetHostname</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HostnameOverride</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getNodeName</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Cloud</span>, <span style="color:#a6e22e">hostName</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// 这里会初始化3个client出来，kubeclient, eventclient, heartbeatclient,如果是standalone模式，这三个client设置为空
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">switch</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">standaloneMode</span>:
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span> = <span style="color:#66d9ef">nil</span>
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">EventClient</span> = <span style="color:#66d9ef">nil</span>
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">HeartbeatClient</span> = <span style="color:#66d9ef">nil</span>
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;standalone mode, no API client&#34;</span>)
+
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">EventClient</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">HeartbeatClient</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span>:
+		
+		<span style="color:#a6e22e">clientConfig</span>, <span style="color:#a6e22e">closeAllConns</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">buildKubeletClientConfig</span>(<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">nodeName</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">closeAllConns</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">New</span>(<span style="color:#e6db74">&#34;closeAllConns must be a valid function other than nil&#34;</span>)
+		}
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">OnHeartbeatFailure</span> = <span style="color:#a6e22e">closeAllConns</span>
+
+        <span style="color:#75715e">//初始化kubeclient
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">clientset</span>.<span style="color:#a6e22e">NewForConfig</span>(<span style="color:#a6e22e">clientConfig</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize kubelet client: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+
+		<span style="color:#75715e">// make a separate client for events
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">eventClientConfig</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">clientConfig</span>
+		<span style="color:#a6e22e">eventClientConfig</span>.<span style="color:#a6e22e">QPS</span> = float32(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EventRecordQPS</span>)
+		<span style="color:#a6e22e">eventClientConfig</span>.<span style="color:#a6e22e">Burst</span> = int(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EventBurst</span>)
+		
+        <span style="color:#75715e">//初始化evnetClient
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">EventClient</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">v1core</span>.<span style="color:#a6e22e">NewForConfig</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">eventClientConfig</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize kubelet event client: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+		
+		<span style="color:#a6e22e">heartbeatClientConfig</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">clientConfig</span>
+		<span style="color:#a6e22e">heartbeatClientConfig</span>.<span style="color:#a6e22e">Timeout</span> = <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletConfiguration</span>.<span style="color:#a6e22e">NodeStatusUpdateFrequency</span>.<span style="color:#a6e22e">Duration</span>
+		<span style="color:#75715e">// if the NodeLease feature is enabled, the timeout is the minimum of the lease duration and status update frequency
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">NodeLease</span>) {
+			<span style="color:#a6e22e">leaseTimeout</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletConfiguration</span>.<span style="color:#a6e22e">NodeLeaseDurationSeconds</span>) <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">heartbeatClientConfig</span>.<span style="color:#a6e22e">Timeout</span> &gt; <span style="color:#a6e22e">leaseTimeout</span> {
+				<span style="color:#a6e22e">heartbeatClientConfig</span>.<span style="color:#a6e22e">Timeout</span> = <span style="color:#a6e22e">leaseTimeout</span>
+			}
+		}
+		<span style="color:#a6e22e">heartbeatClientConfig</span>.<span style="color:#a6e22e">QPS</span> = float32(<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+        <span style="color:#75715e">// 初始化heartbeatClient
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">HeartbeatClient</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">clientset</span>.<span style="color:#a6e22e">NewForConfig</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">heartbeatClientConfig</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize kubelet heartbeat client: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Auth</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">auth</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">BuildAuth</span>(<span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletConfiguration</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Auth</span> = <span style="color:#a6e22e">auth</span>
+	}
+
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">cgroupRoots</span> []<span style="color:#66d9ef">string</span>
+
+	<span style="color:#a6e22e">cgroupRoots</span> = append(<span style="color:#a6e22e">cgroupRoots</span>, <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">NodeAllocatableRoot</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupRoot</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupDriver</span>))
+	<span style="color:#a6e22e">kubeletCgroup</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">GetKubeletContainer</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletCgroups</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;failed to get the kubelet&#39;s cgroup: %v.  Kubelet system container metrics may be missing.&#34;</span>, <span style="color:#a6e22e">err</span>)
+	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeletCgroup</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">cgroupRoots</span> = append(<span style="color:#a6e22e">cgroupRoots</span>, <span style="color:#a6e22e">kubeletCgroup</span>)
+	}
+
+	<span style="color:#a6e22e">runtimeCgroup</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">GetRuntimeContainer</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ContainerRuntime</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RuntimeCgroups</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;failed to get the container runtime&#39;s cgroup: %v. Runtime system container metrics may be missing.&#34;</span>, <span style="color:#a6e22e">err</span>)
+	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">runtimeCgroup</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#75715e">// RuntimeCgroups is optional, so ignore if it isn&#39;t specified
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">cgroupRoots</span> = append(<span style="color:#a6e22e">cgroupRoots</span>, <span style="color:#a6e22e">runtimeCgroup</span>)
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">SystemCgroups</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#75715e">// SystemCgroups is optional, so ignore if it isn&#39;t specified
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">cgroupRoots</span> = append(<span style="color:#a6e22e">cgroupRoots</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">SystemCgroups</span>)
+	}
+
+    <span style="color:#75715e">//初始化Cadvisor
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">CAdvisorInterface</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">imageFsInfoProvider</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cadvisor</span>.<span style="color:#a6e22e">NewImageFsInfoProvider</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ContainerRuntime</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RemoteRuntimeEndpoint</span>)
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">CAdvisorInterface</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">cadvisor</span>.<span style="color:#a6e22e">New</span>(<span style="color:#a6e22e">imageFsInfoProvider</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RootDirectory</span>, <span style="color:#a6e22e">cgroupRoots</span>, <span style="color:#a6e22e">cadvisor</span>.<span style="color:#a6e22e">UsingLegacyCadvisorStats</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ContainerRuntime</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RemoteRuntimeEndpoint</span>))
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+	<span style="color:#75715e">// Setup event recorder if required.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">makeEventRecorder</span>(<span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">nodeName</span>)
+
+    <span style="color:#75715e">//初始化containerManager
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">ContainerManager</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupsPerQOS</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupRoot</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;--cgroups-per-qos enabled, but --cgroup-root was not specified.  defaulting to /&#34;</span>)
+			<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupRoot</span> = <span style="color:#e6db74">&#34;/&#34;</span>
+		}
+		<span style="color:#a6e22e">kubeReserved</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">parseResourceList</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeReserved</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#a6e22e">systemReserved</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">parseResourceList</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">SystemReserved</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">hardEvictionThresholds</span> []<span style="color:#a6e22e">evictionapi</span>.<span style="color:#a6e22e">Threshold</span>
+		<span style="color:#75715e">// If the user requested to ignore eviction thresholds, then do not set valid values for hardEvictionThresholds here.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ExperimentalNodeAllocatableIgnoreEvictionThreshold</span> {
+			<span style="color:#a6e22e">hardEvictionThresholds</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">eviction</span>.<span style="color:#a6e22e">ParseThresholdConfig</span>([]<span style="color:#66d9ef">string</span>{}, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EvictionHard</span>, <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">nil</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+			}
+		}
+		<span style="color:#a6e22e">experimentalQOSReserved</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">ParseQOSReserved</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">QOSReserved</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+
+		<span style="color:#a6e22e">devicePluginEnabled</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">DevicePlugins</span>)
+
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">ContainerManager</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">NewContainerManager</span>(
+			<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Mounter</span>,
+			<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">CAdvisorInterface</span>,
+			<span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">NodeConfig</span>{
+				<span style="color:#a6e22e">RuntimeCgroupsName</span>:    <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RuntimeCgroups</span>,
+				<span style="color:#a6e22e">SystemCgroupsName</span>:     <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">SystemCgroups</span>,
+				<span style="color:#a6e22e">KubeletCgroupsName</span>:    <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeletCgroups</span>,
+				<span style="color:#a6e22e">ContainerRuntime</span>:      <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ContainerRuntime</span>,
+				<span style="color:#a6e22e">CgroupsPerQOS</span>:         <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupsPerQOS</span>,
+				<span style="color:#a6e22e">CgroupRoot</span>:            <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupRoot</span>,
+				<span style="color:#a6e22e">CgroupDriver</span>:          <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CgroupDriver</span>,
+				<span style="color:#a6e22e">KubeletRootDir</span>:        <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RootDirectory</span>,
+				<span style="color:#a6e22e">ProtectKernelDefaults</span>: <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ProtectKernelDefaults</span>,
+				<span style="color:#a6e22e">NodeAllocatableConfig</span>: <span style="color:#a6e22e">cm</span>.<span style="color:#a6e22e">NodeAllocatableConfig</span>{
+					<span style="color:#a6e22e">KubeReservedCgroupName</span>:   <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">KubeReservedCgroup</span>,
+					<span style="color:#a6e22e">SystemReservedCgroupName</span>: <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">SystemReservedCgroup</span>,
+					<span style="color:#a6e22e">EnforceNodeAllocatable</span>:   <span style="color:#a6e22e">sets</span>.<span style="color:#a6e22e">NewString</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EnforceNodeAllocatable</span><span style="color:#f92672">...</span>),
+					<span style="color:#a6e22e">KubeReserved</span>:             <span style="color:#a6e22e">kubeReserved</span>,
+					<span style="color:#a6e22e">SystemReserved</span>:           <span style="color:#a6e22e">systemReserved</span>,
+					<span style="color:#a6e22e">HardEvictionThresholds</span>:   <span style="color:#a6e22e">hardEvictionThresholds</span>,
+				},
+				<span style="color:#a6e22e">QOSReserved</span>:                           <span style="color:#f92672">*</span><span style="color:#a6e22e">experimentalQOSReserved</span>,
+				<span style="color:#a6e22e">ExperimentalCPUManagerPolicy</span>:          <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CPUManagerPolicy</span>,
+				<span style="color:#a6e22e">ExperimentalCPUManagerReconcilePeriod</span>: <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CPUManagerReconcilePeriod</span>.<span style="color:#a6e22e">Duration</span>,
+				<span style="color:#a6e22e">ExperimentalPodPidsLimit</span>:              <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">PodPidsLimit</span>,
+				<span style="color:#a6e22e">EnforceCPULimits</span>:                      <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CPUCFSQuota</span>,
+				<span style="color:#a6e22e">CPUCFSQuotaPeriod</span>:                     <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">CPUCFSQuotaPeriod</span>.<span style="color:#a6e22e">Duration</span>,
+				<span style="color:#a6e22e">ExperimentalTopologyManagerPolicy</span>:     <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">TopologyManagerPolicy</span>,
+			},
+			<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">FailSwapOn</span>,
+			<span style="color:#a6e22e">devicePluginEnabled</span>,
+			<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>)
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">checkPermissions</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Error</span>(<span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">ReallyCrash</span> = <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ReallyCrashForTesting</span>
+
+	<span style="color:#75715e">// 初始化OOMAdjuster
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">oomAdjuster</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">OOMAdjuster</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">oomAdjuster</span>.<span style="color:#a6e22e">ApplyOOMScoreAdj</span>(<span style="color:#ae81ff">0</span>, int(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">OOMScoreAdj</span>)); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warning</span>(<span style="color:#a6e22e">err</span>)
+	}
+
+    <span style="color:#75715e">//调用RunKubelet，后面分析RunKubelet里面具体逻辑
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">RunKubelet</span>(<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RunOnce</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// If the kubelet config controller is available, and dynamic config is enabled, start the config and status sync loops
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">DynamicKubeletConfig</span>) <span style="color:#f92672">&amp;&amp;</span> len(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">DynamicConfigDir</span>.<span style="color:#a6e22e">Value</span>()) &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span>
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeletConfigController</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> !<span style="color:#a6e22e">standaloneMode</span> <span style="color:#f92672">&amp;&amp;</span> !<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RunOnce</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeletConfigController</span>.<span style="color:#a6e22e">StartSync</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">EventClient</span>, string(<span style="color:#a6e22e">nodeName</span>)); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+     <span style="color:#75715e">// 启动 Healthz http server
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HealthzPort</span> &gt; <span style="color:#ae81ff">0</span> {
+		<span style="color:#a6e22e">mux</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">NewServeMux</span>()
+		<span style="color:#a6e22e">healthz</span>.<span style="color:#a6e22e">InstallHandler</span>(<span style="color:#a6e22e">mux</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#66d9ef">func</span>() {
+			<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">ListenAndServe</span>(<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">JoinHostPort</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HealthzBindAddress</span>, <span style="color:#a6e22e">strconv</span>.<span style="color:#a6e22e">Itoa</span>(int(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HealthzPort</span>))), <span style="color:#a6e22e">mux</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Starting healthz server failed: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+			}
+		}, <span style="color:#ae81ff">5</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">RunOnce</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+
+	<span style="color:#75715e">// If systemd is used, notify it that we have started
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">daemon</span>.<span style="color:#a6e22e">SdNotify</span>(<span style="color:#66d9ef">false</span>, <span style="color:#e6db74">&#34;READY=1&#34;</span>)
+
+	<span style="color:#66d9ef">select</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">done</span>:
+		<span style="color:#66d9ef">break</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">stopCh</span>:
+		<span style="color:#66d9ef">break</span>
+	}
+
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>进入<code>RunKubelet(s, kubeDeps, s.RunOnce)</code>进行分析</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/app/server.go:989
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">RunKubelet</span>(<span style="color:#a6e22e">kubeServer</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">KubeletServer</span>, <span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Dependencies</span>, <span style="color:#a6e22e">runOnce</span> <span style="color:#66d9ef">bool</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#a6e22e">hostname</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nodeutil</span>.<span style="color:#a6e22e">GetHostname</span>(<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">HostnameOverride</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#75715e">// Query the cloud provider for our node name, default to hostname if kubeDeps.Cloud == nil
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getNodeName</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Cloud</span>, <span style="color:#a6e22e">hostname</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+	
+    <span style="color:#75715e">//开启特权模式
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">capabilities</span>.<span style="color:#a6e22e">Initialize</span>(<span style="color:#a6e22e">capabilities</span>.<span style="color:#a6e22e">Capabilities</span>{
+		<span style="color:#a6e22e">AllowPrivileged</span>: <span style="color:#66d9ef">true</span>,
+	})
+
+	<span style="color:#a6e22e">credentialprovider</span>.<span style="color:#a6e22e">SetPreferredDockercfgPath</span>(<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">RootDirectory</span>)
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Using root directory: %v&#34;</span>, <span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">RootDirectory</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">OSInterface</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">OSInterface</span> = <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">RealOS</span>{}
+	}
+
+    <span style="color:#75715e">//上一节我们初始化了一大堆东西，包括kubeDeps，这里可以进行创建和初始化kubelet了
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">k</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">createAndInitKubelet</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">KubeletConfiguration</span>,
+		<span style="color:#a6e22e">kubeDeps</span>,
+		<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">ContainerRuntimeOptions</span>,
+		<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">ContainerRuntime</span>,
+	    <span style="color:#f92672">...</span>
+		<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">NodeLabels</span>,
+		<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">SeccompProfileRoot</span>,
+		<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">BootstrapCheckpointPath</span>,
+		<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">NodeStatusMaxImages</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to create kubelet: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#75715e">// NewMainKubelet should have set up a pod source config if one didn&#39;t exist
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// when the builder was run. This is just a precaution.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">PodConfig</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to create kubelet, pod source config was nil&#34;</span>)
+	}
+	<span style="color:#a6e22e">podCfg</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">PodConfig</span>
+
+	<span style="color:#a6e22e">rlimit</span>.<span style="color:#a6e22e">RlimitNumFiles</span>(uint64(<span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">MaxOpenFiles</span>))
+
+	<span style="color:#75715e">//单利模式启动Kubelet
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">runOnce</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">RunOnce</span>(<span style="color:#a6e22e">podCfg</span>.<span style="color:#a6e22e">Updates</span>()); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;runonce failed: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Started kubelet as runonce&#34;</span>)
+	} <span style="color:#66d9ef">else</span> {
+		<span style="color:#a6e22e">startKubelet</span>(<span style="color:#a6e22e">k</span>, <span style="color:#a6e22e">podCfg</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">KubeletConfiguration</span>, <span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">EnableCAdvisorJSONEndpoints</span>, <span style="color:#a6e22e">kubeServer</span>.<span style="color:#a6e22e">EnableServer</span>)
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Started kubelet&#34;</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>进入<code>createAndInitKubelet</code>进行分析：
+该函数返回值为kubelet.Bootstrap，看一个Bootstrap接口内容，</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">Bootstrap</span> <span style="color:#66d9ef">interface</span> {
+	<span style="color:#a6e22e">GetConfiguration</span>() <span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">KubeletConfiguration</span>
+	<span style="color:#a6e22e">BirthCry</span>()
+	<span style="color:#a6e22e">StartGarbageCollection</span>()
+	<span style="color:#a6e22e">ListenAndServe</span>(<span style="color:#a6e22e">address</span> <span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">IP</span>, <span style="color:#a6e22e">port</span> <span style="color:#66d9ef">uint</span>, <span style="color:#a6e22e">tlsOptions</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">server</span>.<span style="color:#a6e22e">TLSOptions</span>, <span style="color:#a6e22e">auth</span> <span style="color:#a6e22e">server</span>.<span style="color:#a6e22e">AuthInterface</span>, <span style="color:#a6e22e">enableCAdvisorJSONEndpoints</span>, <span style="color:#a6e22e">enableDebuggingHandlers</span>, <span style="color:#a6e22e">enableContentionProfiling</span> <span style="color:#66d9ef">bool</span>)
+	<span style="color:#a6e22e">ListenAndServeReadOnly</span>(<span style="color:#a6e22e">address</span> <span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">IP</span>, <span style="color:#a6e22e">port</span> <span style="color:#66d9ef">uint</span>, <span style="color:#a6e22e">enableCAdvisorJSONEndpoints</span> <span style="color:#66d9ef">bool</span>)
+	<span style="color:#a6e22e">ListenAndServePodResources</span>()
+	<span style="color:#a6e22e">Run</span>(<span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">PodUpdate</span>)
+	<span style="color:#a6e22e">RunOnce</span>(<span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">PodUpdate</span>) ([]<span style="color:#a6e22e">RunPodResult</span>, <span style="color:#66d9ef">error</span>)
+}
+</code></pre></div><div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">///cmd/kubelet/app/server.go:1087
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">createAndInitKubelet</span>(<span style="color:#a6e22e">kubeCfg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">KubeletConfiguration</span>,<span style="color:#f92672">...</span>) (<span style="color:#a6e22e">k</span> <span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Bootstrap</span>, <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>)
+	<span style="color:#75715e">//将传入的参数传递进入NewMainKubelet，返回kubelet bootstrap，bootstrap里面有kubelet相关模块启动方法
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">k</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">NewMainKubelet</span>(<span style="color:#a6e22e">kubeCfg</span>,
+		<span style="color:#a6e22e">kubeDeps</span>,
+		<span style="color:#f92672">...</span>
+		<span style="color:#a6e22e">nodeStatusMaxImages</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+
+    <span style="color:#75715e">//kubelet核心启动之前，先向api server发送cry，告知kubelet启动了
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">BirthCry</span>()
+
+    <span style="color:#75715e">//启动垃圾回收服务，回收container和image
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">StartGarbageCollection</span>()
+
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">k</span>, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>进入<code>NewMainKubelet</code> 进行分析，从文档注释中我们可以看到，<code>NewMainKubelet</code>完成之后，自己及自己所依赖的所有模块初始化工作均需要完成</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// pkg/kubelet/kubelet.go:335
+</span><span style="color:#75715e"></span><span style="color:#75715e">// NewMainKubelet instantiates a new Kubelet object along with all the required internal modules.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// No initialization of Kubelet and its modules should happen here.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NewMainKubelet</span>(<span style="color:#a6e22e">kubeCfg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">KubeletConfiguration</span>,
+	<span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Dependencies</span>,
+	<span style="color:#a6e22e">crOptions</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">ContainerRuntimeOptions</span>,
+	<span style="color:#a6e22e">containerRuntime</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">runtimeCgroups</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">hostnameOverride</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">nodeIP</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">providerID</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">cloudProvider</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">certDirectory</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">rootDirectory</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">registerNode</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">registerWithTaints</span> []<span style="color:#a6e22e">api</span>.<span style="color:#a6e22e">Taint</span>,
+	<span style="color:#a6e22e">allowedUnsafeSysctls</span> []<span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">remoteRuntimeEndpoint</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">remoteImageEndpoint</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">experimentalMounterPath</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">experimentalKernelMemcgNotification</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">experimentalCheckNodeCapabilitiesBeforeMount</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">experimentalNodeAllocatableIgnoreEvictionThreshold</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">minimumGCAge</span> <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">Duration</span>,
+	<span style="color:#a6e22e">maxPerPodContainerCount</span> <span style="color:#66d9ef">int32</span>,
+	<span style="color:#a6e22e">maxContainerCount</span> <span style="color:#66d9ef">int32</span>,
+	<span style="color:#a6e22e">masterServiceNamespace</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">registerSchedulable</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">nonMasqueradeCIDR</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">keepTerminatedPodVolumes</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">nodeLabels</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">seccompProfileRoot</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">bootstrapCheckpointPath</span> <span style="color:#66d9ef">string</span>,
+	<span style="color:#a6e22e">nodeStatusMaxImages</span> <span style="color:#66d9ef">int32</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">rootDirectory</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;invalid root directory %q&#34;</span>, <span style="color:#a6e22e">rootDirectory</span>)
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">SyncFrequency</span>.<span style="color:#a6e22e">Duration</span> <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;invalid sync frequency %d&#34;</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">SyncFrequency</span>.<span style="color:#a6e22e">Duration</span>)
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">MakeIPTablesUtilChains</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesMasqueradeBit</span> &gt; <span style="color:#ae81ff">31</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesMasqueradeBit</span> &lt; <span style="color:#ae81ff">0</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;iptables-masquerade-bit is not valid. Must be within [0, 31]&#34;</span>)
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesDropBit</span> &gt; <span style="color:#ae81ff">31</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesDropBit</span> &lt; <span style="color:#ae81ff">0</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;iptables-drop-bit is not valid. Must be within [0, 31]&#34;</span>)
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesDropBit</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">IPTablesMasqueradeBit</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;iptables-masquerade-bit and iptables-drop-bit must be different&#34;</span>)
+		}
+	}
+
+	<span style="color:#a6e22e">hostname</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nodeutil</span>.<span style="color:#a6e22e">GetHostname</span>(<span style="color:#a6e22e">hostnameOverride</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#75715e">// Query the cloud provider for our node name, default to hostname
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">nodeName</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">types</span>.<span style="color:#a6e22e">NodeName</span>(<span style="color:#a6e22e">hostname</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Cloud</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>
+		<span style="color:#a6e22e">instances</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Cloud</span>.<span style="color:#a6e22e">Instances</span>()
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to get instances from cloud provider&#34;</span>)
+		}
+
+		<span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">instances</span>.<span style="color:#a6e22e">CurrentNodeName</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#a6e22e">hostname</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;error fetching current instance name from cloud provider: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;cloud provider determined current node name to be %s&#34;</span>, <span style="color:#a6e22e">nodeName</span>)
+	}
+
+    <span style="color:#75715e">//初始化podConfig模块
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">PodConfig</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">PodConfig</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">makePodSourceConfig</span>(<span style="color:#a6e22e">kubeCfg</span>, <span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">bootstrapCheckpointPath</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+	}
+
+    <span style="color:#75715e">//初始化containerGCPolicy,imageGCPolicy,evictionConfig
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">containerGCPolicy</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">ContainerGCPolicy</span>{
+		<span style="color:#a6e22e">MinAge</span>:             <span style="color:#a6e22e">minimumGCAge</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">MaxPerPodContainer</span>: int(<span style="color:#a6e22e">maxPerPodContainerCount</span>),
+		<span style="color:#a6e22e">MaxContainers</span>:      int(<span style="color:#a6e22e">maxContainerCount</span>),
+	}
+
+	<span style="color:#a6e22e">daemonEndpoints</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">NodeDaemonEndpoints</span>{
+		<span style="color:#a6e22e">KubeletEndpoint</span>: <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">DaemonEndpoint</span>{<span style="color:#a6e22e">Port</span>: <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">Port</span>},
+	}
+
+	<span style="color:#a6e22e">imageGCPolicy</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">images</span>.<span style="color:#a6e22e">ImageGCPolicy</span>{
+		<span style="color:#a6e22e">MinAge</span>:               <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ImageMinimumGCAge</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">HighThresholdPercent</span>: int(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ImageGCHighThresholdPercent</span>),
+		<span style="color:#a6e22e">LowThresholdPercent</span>:  int(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ImageGCLowThresholdPercent</span>),
+	}
+
+	<span style="color:#a6e22e">enforceNodeAllocatable</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EnforceNodeAllocatable</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">experimentalNodeAllocatableIgnoreEvictionThreshold</span> {
+		<span style="color:#75715e">// Do not provide kubeCfg.EnforceNodeAllocatable to eviction threshold parsing if we are not enforcing Evictions
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">enforceNodeAllocatable</span> = []<span style="color:#66d9ef">string</span>{}
+	}
+	<span style="color:#a6e22e">thresholds</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">eviction</span>.<span style="color:#a6e22e">ParseThresholdConfig</span>(<span style="color:#a6e22e">enforceNodeAllocatable</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionHard</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionSoft</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionSoftGracePeriod</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionMinimumReclaim</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">evictionConfig</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">eviction</span>.<span style="color:#a6e22e">Config</span>{
+		<span style="color:#a6e22e">PressureTransitionPeriod</span>: <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionPressureTransitionPeriod</span>.<span style="color:#a6e22e">Duration</span>,
+		<span style="color:#a6e22e">MaxPodGracePeriodSeconds</span>: int64(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EvictionMaxPodGracePeriod</span>),
+		<span style="color:#a6e22e">Thresholds</span>:               <span style="color:#a6e22e">thresholds</span>,
+		<span style="color:#a6e22e">KernelMemcgNotification</span>:  <span style="color:#a6e22e">experimentalKernelMemcgNotification</span>,
+		<span style="color:#a6e22e">PodCgroupRoot</span>:            <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">ContainerManager</span>.<span style="color:#a6e22e">GetPodCgroupRoot</span>(),
+	}
+
+	<span style="color:#a6e22e">serviceIndexer</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewIndexer</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">MetaNamespaceKeyFunc</span>, <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">Indexers</span>{<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NamespaceIndex</span>: <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">MetaNamespaceIndexFunc</span>})
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">serviceLW</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewListWatchFromClient</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>.<span style="color:#a6e22e">CoreV1</span>().<span style="color:#a6e22e">RESTClient</span>(), <span style="color:#e6db74">&#34;services&#34;</span>, <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">NamespaceAll</span>, <span style="color:#a6e22e">fields</span>.<span style="color:#a6e22e">Everything</span>())
+		<span style="color:#a6e22e">r</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewReflector</span>(<span style="color:#a6e22e">serviceLW</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Service</span>{}, <span style="color:#a6e22e">serviceIndexer</span>, <span style="color:#ae81ff">0</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">r</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+    <span style="color:#75715e">//kubelet结构体需要serviceLister
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">serviceLister</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">corelisters</span>.<span style="color:#a6e22e">NewServiceLister</span>(<span style="color:#a6e22e">serviceIndexer</span>)
+
+	<span style="color:#a6e22e">nodeIndexer</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewIndexer</span>(<span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">MetaNamespaceKeyFunc</span>, <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">Indexers</span>{})
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">fieldSelector</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fields</span>.<span style="color:#a6e22e">Set</span>{<span style="color:#a6e22e">api</span>.<span style="color:#a6e22e">ObjectNameField</span>: string(<span style="color:#a6e22e">nodeName</span>)}.<span style="color:#a6e22e">AsSelector</span>()
+		<span style="color:#a6e22e">nodeLW</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewListWatchFromClient</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>.<span style="color:#a6e22e">CoreV1</span>().<span style="color:#a6e22e">RESTClient</span>(), <span style="color:#e6db74">&#34;nodes&#34;</span>, <span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">NamespaceAll</span>, <span style="color:#a6e22e">fieldSelector</span>)
+		<span style="color:#a6e22e">r</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">cache</span>.<span style="color:#a6e22e">NewReflector</span>(<span style="color:#a6e22e">nodeLW</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Node</span>{}, <span style="color:#a6e22e">nodeIndexer</span>, <span style="color:#ae81ff">0</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">r</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+	<span style="color:#75715e">//kublete结构体需要nodeInfo
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">nodeInfo</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">CachedNodeInfo</span>{<span style="color:#a6e22e">NodeLister</span>: <span style="color:#a6e22e">corelisters</span>.<span style="color:#a6e22e">NewNodeLister</span>(<span style="color:#a6e22e">nodeIndexer</span>)}
+
+	<span style="color:#75715e">// TODO: get the real node object of ourself,
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// and use the real node name and UID.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// TODO: what is namespace for node?
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">nodeRef</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">ObjectReference</span>{
+		<span style="color:#a6e22e">Kind</span>:      <span style="color:#e6db74">&#34;Node&#34;</span>,
+		<span style="color:#a6e22e">Name</span>:      string(<span style="color:#a6e22e">nodeName</span>),
+		<span style="color:#a6e22e">UID</span>:       <span style="color:#a6e22e">types</span>.<span style="color:#a6e22e">UID</span>(<span style="color:#a6e22e">nodeName</span>),
+		<span style="color:#a6e22e">Namespace</span>: <span style="color:#e6db74">&#34;&#34;</span>,
+	}
+
+    <span style="color:#75715e">//初始化containerRefManager,oomWatcher
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">containerRefManager</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">NewRefManager</span>()
+
+	<span style="color:#a6e22e">oomWatcher</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">oomwatcher</span>.<span style="color:#a6e22e">NewWatcher</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>)
+
+	<span style="color:#a6e22e">clusterDNS</span> <span style="color:#f92672">:=</span> make([]<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">IP</span>, <span style="color:#ae81ff">0</span>, len(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ClusterDNS</span>))
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">ipEntry</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ClusterDNS</span> {
+		<span style="color:#a6e22e">ip</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">ParseIP</span>(<span style="color:#a6e22e">ipEntry</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ip</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warningf</span>(<span style="color:#e6db74">&#34;Invalid clusterDNS ip &#39;%q&#39;&#34;</span>, <span style="color:#a6e22e">ipEntry</span>)
+		} <span style="color:#66d9ef">else</span> {
+			<span style="color:#a6e22e">clusterDNS</span> = append(<span style="color:#a6e22e">clusterDNS</span>, <span style="color:#a6e22e">ip</span>)
+		}
+	}
+	<span style="color:#a6e22e">httpClient</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">Client</span>{}
+	<span style="color:#a6e22e">parsedNodeIP</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">ParseIP</span>(<span style="color:#a6e22e">nodeIP</span>)
+	<span style="color:#a6e22e">protocol</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">utilipt</span>.<span style="color:#a6e22e">ProtocolIpv4</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">parsedNodeIP</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">parsedNodeIP</span>.<span style="color:#a6e22e">To4</span>() <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">0</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;IPv6 node IP (%s), assume IPv6 operation&#34;</span>, <span style="color:#a6e22e">nodeIP</span>)
+		<span style="color:#a6e22e">protocol</span> = <span style="color:#a6e22e">utilipt</span>.<span style="color:#a6e22e">ProtocolIpv6</span>
+	}
+
+    <span style="color:#75715e">//初始化kubelet对象
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">Kubelet</span>{
+		<span style="color:#f92672">...</span>
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cloud</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cloudResourceSyncManager</span> = <span style="color:#a6e22e">cloudresource</span>.<span style="color:#a6e22e">NewSyncManager</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cloud</span>, <span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">nodeStatusUpdateFrequency</span>)
+	}
+
+    <span style="color:#75715e">//初始化 secretManager、configMapManager
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">secretManager</span> <span style="color:#a6e22e">secret</span>.<span style="color:#a6e22e">Manager</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">configMapManager</span> <span style="color:#a6e22e">configmap</span>.<span style="color:#a6e22e">Manager</span>
+	<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ConfigMapAndSecretChangeDetectionStrategy</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">WatchChangeDetectionStrategy</span>:
+		<span style="color:#a6e22e">secretManager</span> = <span style="color:#a6e22e">secret</span>.<span style="color:#a6e22e">NewWatchingSecretManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+		<span style="color:#a6e22e">configMapManager</span> = <span style="color:#a6e22e">configmap</span>.<span style="color:#a6e22e">NewWatchingConfigMapManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">TTLCacheChangeDetectionStrategy</span>:
+		<span style="color:#a6e22e">secretManager</span> = <span style="color:#a6e22e">secret</span>.<span style="color:#a6e22e">NewCachingSecretManager</span>(
+			<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>, <span style="color:#a6e22e">manager</span>.<span style="color:#a6e22e">GetObjectTTLFromNodeFunc</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">GetNode</span>))
+		<span style="color:#a6e22e">configMapManager</span> = <span style="color:#a6e22e">configmap</span>.<span style="color:#a6e22e">NewCachingConfigMapManager</span>(
+			<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>, <span style="color:#a6e22e">manager</span>.<span style="color:#a6e22e">GetObjectTTLFromNodeFunc</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">GetNode</span>))
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">GetChangeDetectionStrategy</span>:
+		<span style="color:#a6e22e">secretManager</span> = <span style="color:#a6e22e">secret</span>.<span style="color:#a6e22e">NewSimpleSecretManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+		<span style="color:#a6e22e">configMapManager</span> = <span style="color:#a6e22e">configmap</span>.<span style="color:#a6e22e">NewSimpleConfigMapManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+	<span style="color:#66d9ef">default</span>:
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unknown configmap and secret manager mode: %v&#34;</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ConfigMapAndSecretChangeDetectionStrategy</span>)
+	}
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">secretManager</span> = <span style="color:#a6e22e">secretManager</span>
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">configMapManager</span> = <span style="color:#a6e22e">configMapManager</span>
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">experimentalHostUserNamespaceDefaulting</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Experimental host user namespace defaulting is enabled.&#34;</span>)
+	}
+
+    <span style="color:#75715e">//获取节点机器信息
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">machineInfo</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cadvisor</span>.<span style="color:#a6e22e">MachineInfo</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">machineInfo</span> = <span style="color:#a6e22e">machineInfo</span>
+
+	<span style="color:#a6e22e">imageBackOff</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">flowcontrol</span>.<span style="color:#a6e22e">NewBackOff</span>(<span style="color:#a6e22e">backOffPeriod</span>, <span style="color:#a6e22e">MaxContainerBackOff</span>)
+
+    
+    <span style="color:#75715e">//初始化livenessManager, podManager, statusManager, resourceAnalyzer
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">livenessManager</span> = <span style="color:#a6e22e">proberesults</span>.<span style="color:#a6e22e">NewManager</span>()
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podCache</span> = <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">NewCache</span>()
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">checkpointManager</span> <span style="color:#a6e22e">checkpointmanager</span>.<span style="color:#a6e22e">CheckpointManager</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">bootstrapCheckpointPath</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#a6e22e">checkpointManager</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">checkpointmanager</span>.<span style="color:#a6e22e">NewCheckpointManager</span>(<span style="color:#a6e22e">bootstrapCheckpointPath</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize checkpoint manager: %+v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+	}
+	<span style="color:#75715e">// podManager is also responsible for keeping secretManager and configMapManager contents up-to-date.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span> = <span style="color:#a6e22e">kubepod</span>.<span style="color:#a6e22e">NewBasicPodManager</span>(<span style="color:#a6e22e">kubepod</span>.<span style="color:#a6e22e">NewBasicMirrorClient</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">kubeClient</span>), <span style="color:#a6e22e">secretManager</span>, <span style="color:#a6e22e">configMapManager</span>, <span style="color:#a6e22e">checkpointManager</span>)
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">statusManager</span> = <span style="color:#a6e22e">status</span>.<span style="color:#a6e22e">NewManager</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">kubeClient</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span>, <span style="color:#a6e22e">klet</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">remoteRuntimeEndpoint</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+		<span style="color:#75715e">// remoteImageEndpoint is same as remoteRuntimeEndpoint if not explicitly specified
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">remoteImageEndpoint</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+			<span style="color:#a6e22e">remoteImageEndpoint</span> = <span style="color:#a6e22e">remoteRuntimeEndpoint</span>
+		}
+	}
+
+	<span style="color:#75715e">// TODO: These need to become arguments to a standalone docker shim.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">pluginSettings</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dockershim</span>.<span style="color:#a6e22e">NetworkPluginSettings</span>{
+		<span style="color:#a6e22e">HairpinMode</span>:        <span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">HairpinMode</span>(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">HairpinMode</span>),
+		<span style="color:#a6e22e">NonMasqueradeCIDR</span>:  <span style="color:#a6e22e">nonMasqueradeCIDR</span>,
+		<span style="color:#a6e22e">PluginName</span>:         <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">NetworkPluginName</span>,
+		<span style="color:#a6e22e">PluginConfDir</span>:      <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">CNIConfDir</span>,
+		<span style="color:#a6e22e">PluginBinDirString</span>: <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">CNIBinDir</span>,
+		<span style="color:#a6e22e">PluginCacheDir</span>:     <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">CNICacheDir</span>,
+		<span style="color:#a6e22e">MTU</span>:                int(<span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">NetworkPluginMTU</span>),
+	}
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">resourceAnalyzer</span> = <span style="color:#a6e22e">serverstats</span>.<span style="color:#a6e22e">NewResourceAnalyzer</span>(<span style="color:#a6e22e">klet</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">VolumeStatsAggPeriod</span>.<span style="color:#a6e22e">Duration</span>)
+
+	<span style="color:#75715e">// if left at nil, that means it is unneeded
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">legacyLogProvider</span> <span style="color:#a6e22e">kuberuntime</span>.<span style="color:#a6e22e">LegacyLogProvider</span>
+
+    <span style="color:#75715e">//判断containerRuntime类型，来启动不同类型container service，目前看来只支持DockerContainerRuntime
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">containerRuntime</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">DockerContainerRuntime</span>:
+		<span style="color:#75715e">// Create and start the CRI shim running as a grpc server.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">streamingConfig</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getStreamingConfig</span>(<span style="color:#a6e22e">kubeCfg</span>, <span style="color:#a6e22e">kubeDeps</span>, <span style="color:#a6e22e">crOptions</span>)
+		<span style="color:#a6e22e">ds</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dockershim</span>.<span style="color:#a6e22e">NewDockerService</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">DockerClientConfig</span>, <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">PodSandboxImage</span>, <span style="color:#a6e22e">streamingConfig</span>,
+			<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">pluginSettings</span>, <span style="color:#a6e22e">runtimeCgroups</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">CgroupDriver</span>, <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">DockershimRootDirectory</span>, !<span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">RedirectContainerStreaming</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">RedirectContainerStreaming</span> {
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">criHandler</span> = <span style="color:#a6e22e">ds</span>
+		}
+
+		<span style="color:#75715e">// The unix socket for kubelet &lt;-&gt; dockershim communication.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">5</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;RemoteRuntimeEndpoint: %q, RemoteImageEndpoint: %q&#34;</span>,
+			<span style="color:#a6e22e">remoteRuntimeEndpoint</span>,
+			<span style="color:#a6e22e">remoteImageEndpoint</span>)
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Starting the GRPC server for the docker CRI shim.&#34;</span>)
+		<span style="color:#a6e22e">server</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dockerremote</span>.<span style="color:#a6e22e">NewDockerServer</span>(<span style="color:#a6e22e">remoteRuntimeEndpoint</span>, <span style="color:#a6e22e">ds</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">server</span>.<span style="color:#a6e22e">Start</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+
+		<span style="color:#75715e">// Create dockerLegacyService when the logging driver is not supported.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">supported</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ds</span>.<span style="color:#a6e22e">IsCRISupportedLogDriver</span>()
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">supported</span> {
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">dockerLegacyService</span> = <span style="color:#a6e22e">ds</span>
+			<span style="color:#a6e22e">legacyLogProvider</span> = <span style="color:#a6e22e">ds</span>
+		}
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">RemoteContainerRuntime</span>:
+		<span style="color:#75715e">// No-op.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">break</span>
+	<span style="color:#66d9ef">default</span>:
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unsupported CRI runtime: %q&#34;</span>, <span style="color:#a6e22e">containerRuntime</span>)
+	}
+	<span style="color:#a6e22e">runtimeService</span>, <span style="color:#a6e22e">imageService</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getRuntimeAndImageServices</span>(<span style="color:#a6e22e">remoteRuntimeEndpoint</span>, <span style="color:#a6e22e">remoteImageEndpoint</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">RuntimeRequestTimeout</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeService</span> = <span style="color:#a6e22e">runtimeService</span>
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">RuntimeClass</span>) <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeClassManager</span> = <span style="color:#a6e22e">runtimeclass</span>.<span style="color:#a6e22e">NewManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+	}
+
+	<span style="color:#a6e22e">runtime</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kuberuntime</span>.<span style="color:#a6e22e">NewKubeGenericRuntimeManager</span>(
+		<span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">FilterEventRecorder</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>),
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">livenessManager</span>,
+		<span style="color:#a6e22e">seccompProfileRoot</span>,
+		<span style="color:#a6e22e">containerRefManager</span>,
+		<span style="color:#a6e22e">machineInfo</span>,
+		<span style="color:#a6e22e">klet</span>,
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">OSInterface</span>,
+		<span style="color:#a6e22e">klet</span>,
+		<span style="color:#a6e22e">httpClient</span>,
+		<span style="color:#a6e22e">imageBackOff</span>,
+		<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">SerializeImagePulls</span>,
+		float32(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">RegistryPullQPS</span>),
+		int(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">RegistryBurst</span>),
+		<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">CPUCFSQuota</span>,
+		<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">CPUCFSQuotaPeriod</span>,
+		<span style="color:#a6e22e">runtimeService</span>,
+		<span style="color:#a6e22e">imageService</span>,
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">ContainerManager</span>.<span style="color:#a6e22e">InternalContainerLifecycle</span>(),
+		<span style="color:#a6e22e">legacyLogProvider</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeClassManager</span>,
+	)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span> = <span style="color:#a6e22e">runtime</span>
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">streamingRuntime</span> = <span style="color:#a6e22e">runtime</span>
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runner</span> = <span style="color:#a6e22e">runtime</span>
+
+	<span style="color:#a6e22e">runtimeCache</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">NewRuntimeCache</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeCache</span> = <span style="color:#a6e22e">runtimeCache</span>
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">cadvisor</span>.<span style="color:#a6e22e">UsingLegacyCadvisorStats</span>(<span style="color:#a6e22e">containerRuntime</span>, <span style="color:#a6e22e">remoteRuntimeEndpoint</span>) {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">StatsProvider</span> = <span style="color:#a6e22e">stats</span>.<span style="color:#a6e22e">NewCadvisorStatsProvider</span>(
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cadvisor</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">resourceAnalyzer</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeCache</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">statusManager</span>)
+	} <span style="color:#66d9ef">else</span> {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">StatsProvider</span> = <span style="color:#a6e22e">stats</span>.<span style="color:#a6e22e">NewCRIStatsProvider</span>(
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">cadvisor</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">resourceAnalyzer</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span>,
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeCache</span>,
+			<span style="color:#a6e22e">runtimeService</span>,
+			<span style="color:#a6e22e">imageService</span>,
+			<span style="color:#a6e22e">stats</span>.<span style="color:#a6e22e">NewLogMetricsService</span>(),
+			<span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">RealOS</span>{})
+	}
+
+    <span style="color:#75715e">//初始化pleg
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">pleg</span> = <span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">NewGenericPLEG</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>, <span style="color:#a6e22e">plegChannelCapacity</span>, <span style="color:#a6e22e">plegRelistPeriod</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podCache</span>, <span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">RealClock</span>{})
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeState</span> = <span style="color:#a6e22e">newRuntimeState</span>(<span style="color:#a6e22e">maxWaitForContainerRuntime</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeState</span>.<span style="color:#a6e22e">addHealthCheck</span>(<span style="color:#e6db74">&#34;PLEG&#34;</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">Healthy</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">updatePodCIDR</span>(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">PodCIDR</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Pod CIDR update failed %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#75715e">// 初始化containerGC， imageManager， containerDeletor， containerLogManager
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">containerGC</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">NewContainerGC</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>, <span style="color:#a6e22e">containerGCPolicy</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">sourcesReady</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerGC</span> = <span style="color:#a6e22e">containerGC</span>
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerDeletor</span> = <span style="color:#a6e22e">newPodContainerDeletor</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>, <span style="color:#a6e22e">integer</span>.<span style="color:#a6e22e">IntMax</span>(<span style="color:#a6e22e">containerGCPolicy</span>.<span style="color:#a6e22e">MaxPerPodContainer</span>, <span style="color:#a6e22e">minDeadContainerInPod</span>))
+
+	<span style="color:#75715e">// setup imageManager
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">imageManager</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">images</span>.<span style="color:#a6e22e">NewImageGCManager</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">StatsProvider</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>, <span style="color:#a6e22e">nodeRef</span>, <span style="color:#a6e22e">imageGCPolicy</span>, <span style="color:#a6e22e">crOptions</span>.<span style="color:#a6e22e">PodSandboxImage</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize image manager: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">imageManager</span> = <span style="color:#a6e22e">imageManager</span>
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">containerRuntime</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">RemoteContainerRuntime</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">CRIContainerLogRotation</span>) {
+		<span style="color:#75715e">// setup containerLogManager for CRI container runtime
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">containerLogManager</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">logs</span>.<span style="color:#a6e22e">NewContainerLogManager</span>(
+			<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runtimeService</span>,
+			<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ContainerLogMaxSize</span>,
+			int(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ContainerLogMaxFiles</span>),
+		)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize container log manager: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerLogManager</span> = <span style="color:#a6e22e">containerLogManager</span>
+	} <span style="color:#66d9ef">else</span> {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerLogManager</span> = <span style="color:#a6e22e">logs</span>.<span style="color:#a6e22e">NewStubContainerLogManager</span>()
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ServerTLSBootstrap</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">TLSOptions</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">RotateKubeletServerCertificate</span>) {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">serverCertificateManager</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">kubeletcertificate</span>.<span style="color:#a6e22e">NewKubeletServerCertificateManager</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">kubeClient</span>, <span style="color:#a6e22e">kubeCfg</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">nodeName</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">getLastObservedNodeAddresses</span>, <span style="color:#a6e22e">certDirectory</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;failed to initialize certificate manager: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">TLSOptions</span>.<span style="color:#a6e22e">Config</span>.<span style="color:#a6e22e">GetCertificate</span> = <span style="color:#66d9ef">func</span>(<span style="color:#f92672">*</span><span style="color:#a6e22e">tls</span>.<span style="color:#a6e22e">ClientHelloInfo</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">tls</span>.<span style="color:#a6e22e">Certificate</span>, <span style="color:#66d9ef">error</span>) {
+			<span style="color:#a6e22e">cert</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">serverCertificateManager</span>.<span style="color:#a6e22e">Current</span>()
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">cert</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;no serving certificate available for the kubelet&#34;</span>)
+			}
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">cert</span>, <span style="color:#66d9ef">nil</span>
+		}
+	}
+
+<span style="color:#75715e">// 初始化 serverCertificateManager、probeManager、tokenManager、volumePluginMgr、pluginManager、volumeManager
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">probeManager</span> = <span style="color:#a6e22e">prober</span>.<span style="color:#a6e22e">NewManager</span>(
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">statusManager</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">livenessManager</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">runner</span>,
+		<span style="color:#a6e22e">containerRefManager</span>,
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>)
+
+	<span style="color:#a6e22e">tokenManager</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">token</span>.<span style="color:#a6e22e">NewManager</span>(<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">KubeClient</span>)
+
+	<span style="color:#75715e">// NewInitializedVolumePluginMgr initializes some storageErrors on the Kubelet runtimeState (in csi_plugin.go init)
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// which affects node ready status. This function must be called before Kubelet is initialized so that the Node
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// ReadyState is accurate with the storage state.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">volumePluginMgr</span>, <span style="color:#a6e22e">err</span> =
+		<span style="color:#a6e22e">NewInitializedVolumePluginMgr</span>(<span style="color:#a6e22e">klet</span>, <span style="color:#a6e22e">secretManager</span>, <span style="color:#a6e22e">configMapManager</span>, <span style="color:#a6e22e">tokenManager</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">VolumePlugins</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">DynamicPluginProber</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">pluginManager</span> = <span style="color:#a6e22e">pluginmanager</span>.<span style="color:#a6e22e">NewPluginManager</span>(
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">getPluginsRegistrationDir</span>(), <span style="color:#75715e">/* sockDir */</span>
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">getPluginsDir</span>(),             <span style="color:#75715e">/* deprecatedSockDir */</span>
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>,
+	)
+
+	<span style="color:#75715e">// If the experimentalMounterPathFlag is set, we do not want to
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// check node capabilities since the mount path is not the default
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">experimentalMounterPath</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#a6e22e">experimentalCheckNodeCapabilitiesBeforeMount</span> = <span style="color:#66d9ef">false</span>
+		<span style="color:#75715e">// Replace the nameserver in containerized-mounter&#39;s rootfs/etc/resolve.conf with kubelet.ClusterDNS
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// so that service name could be resolved
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">dnsConfigurer</span>.<span style="color:#a6e22e">SetupDNSinContainerizedMounter</span>(<span style="color:#a6e22e">experimentalMounterPath</span>)
+	}
+
+	<span style="color:#75715e">// setup volumeManager
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">volumeManager</span> = <span style="color:#a6e22e">volumemanager</span>.<span style="color:#a6e22e">NewVolumeManager</span>(
+		<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EnableControllerAttachDetach</span>,
+		<span style="color:#a6e22e">nodeName</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">statusManager</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">kubeClient</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">volumePluginMgr</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>,
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Mounter</span>,
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">HostUtil</span>,
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">getPodsDir</span>(),
+		<span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>,
+		<span style="color:#a6e22e">experimentalCheckNodeCapabilitiesBeforeMount</span>,
+		<span style="color:#a6e22e">keepTerminatedPodVolumes</span>,
+		<span style="color:#a6e22e">volumepathhandler</span>.<span style="color:#a6e22e">NewBlockVolumePathHandler</span>())
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">reasonCache</span> = <span style="color:#a6e22e">NewReasonCache</span>()
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">workQueue</span> = <span style="color:#a6e22e">queue</span>.<span style="color:#a6e22e">NewBasicWorkQueue</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">clock</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podWorkers</span> = <span style="color:#a6e22e">newPodWorkers</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">syncPod</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">workQueue</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">resyncInterval</span>, <span style="color:#a6e22e">backOffPeriod</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podCache</span>)
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">backOff</span> = <span style="color:#a6e22e">flowcontrol</span>.<span style="color:#a6e22e">NewBackOff</span>(<span style="color:#a6e22e">backOffPeriod</span>, <span style="color:#a6e22e">MaxContainerBackOff</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podKillingCh</span> = make(<span style="color:#66d9ef">chan</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">PodPair</span>, <span style="color:#a6e22e">podKillingChannelCapacity</span>)
+
+	<span style="color:#75715e">// setup eviction manager
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">evictionManager</span>, <span style="color:#a6e22e">evictionAdmitHandler</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">eviction</span>.<span style="color:#a6e22e">NewManager</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">resourceAnalyzer</span>, <span style="color:#a6e22e">evictionConfig</span>, <span style="color:#a6e22e">killPodNow</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podWorkers</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>), <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">GetMirrorPodByPod</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">imageManager</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerGC</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>, <span style="color:#a6e22e">nodeRef</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">clock</span>)
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">evictionManager</span> = <span style="color:#a6e22e">evictionManager</span>
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">admitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">evictionAdmitHandler</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">Sysctls</span>) {
+		<span style="color:#75715e">// add sysctl admission
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">runtimeSupport</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sysctl</span>.<span style="color:#a6e22e">NewRuntimeAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+
+		<span style="color:#75715e">// Safe, whitelisted sysctls can always be used as unsafe sysctls in the spec.
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// Hence, we concatenate those two lists.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">safeAndUnsafeSysctls</span> <span style="color:#f92672">:=</span> append(<span style="color:#a6e22e">sysctlwhitelist</span>.<span style="color:#a6e22e">SafeSysctlWhitelist</span>(), <span style="color:#a6e22e">allowedUnsafeSysctls</span><span style="color:#f92672">...</span>)
+		<span style="color:#a6e22e">sysctlsWhitelist</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sysctl</span>.<span style="color:#a6e22e">NewWhitelist</span>(<span style="color:#a6e22e">safeAndUnsafeSysctls</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">admitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">runtimeSupport</span>)
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">admitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">sysctlsWhitelist</span>)
+	}
+
+	<span style="color:#75715e">// enable active deadline handler
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">activeDeadlineHandler</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">newActiveDeadlineHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">statusManager</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">clock</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">AddPodSyncLoopHandler</span>(<span style="color:#a6e22e">activeDeadlineHandler</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">AddPodSyncHandler</span>(<span style="color:#a6e22e">activeDeadlineHandler</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">TopologyManager</span>) {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">admitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerManager</span>.<span style="color:#a6e22e">GetTopologyPodAdmitHandler</span>())
+	}
+	<span style="color:#a6e22e">criticalPodAdmissionHandler</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">preemption</span>.<span style="color:#a6e22e">NewCriticalPodAdmissionHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">GetActivePods</span>, <span style="color:#a6e22e">killPodNow</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">podWorkers</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>), <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Recorder</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">admitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">lifecycle</span>.<span style="color:#a6e22e">NewPredicateAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">getNodeAnyWay</span>, <span style="color:#a6e22e">criticalPodAdmissionHandler</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerManager</span>.<span style="color:#a6e22e">UpdatePluginResources</span>))
+	<span style="color:#75715e">// apply functional Option&#39;s
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">opt</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Options</span> {
+		<span style="color:#a6e22e">opt</span>(<span style="color:#a6e22e">klet</span>)
+	}
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">appArmorValidator</span> = <span style="color:#a6e22e">apparmor</span>.<span style="color:#a6e22e">NewValidator</span>(<span style="color:#a6e22e">containerRuntime</span>)
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">softAdmitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">lifecycle</span>.<span style="color:#a6e22e">NewAppArmorAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">appArmorValidator</span>))
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">softAdmitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">lifecycle</span>.<span style="color:#a6e22e">NewNoNewPrivsAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>))
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">NodeLease</span>) {
+		<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">nodeLeaseController</span> = <span style="color:#a6e22e">nodelease</span>.<span style="color:#a6e22e">NewController</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">clock</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">heartbeatClient</span>, string(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">nodeName</span>), <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">NodeLeaseDurationSeconds</span>, <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">onRepeatedHeartbeatFailure</span>)
+	}
+
+	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">softAdmitHandlers</span>.<span style="color:#a6e22e">AddPodAdmitHandler</span>(<span style="color:#a6e22e">lifecycle</span>.<span style="color:#a6e22e">NewProcMountAdmitHandler</span>(<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">containerRuntime</span>))
+
+	<span style="color:#75715e">// Finally, put the most recent version of the config on the Kubelet, so
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// people can see how it was configured.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">kubeletConfiguration</span> = <span style="color:#f92672">*</span><span style="color:#a6e22e">kubeCfg</span>
+
+	<span style="color:#75715e">// Generating the status funcs should be the last thing we do,
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// since this relies on the rest of the Kubelet having been constructed.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">setNodeStatusFuncs</span> = <span style="color:#a6e22e">klet</span>.<span style="color:#a6e22e">defaultNodeStatusFuncs</span>()
+
+
+    <span style="color:#75715e">//返回一个完全初始化完成的kubelet
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">klet</span>, <span style="color:#66d9ef">nil</span>
+}
+
+</code></pre></div><p>现在调用链已经有点深了，总结下函数调用关系：</p>
+<pre><code>                                                                              |--&gt; NewMainKubelet(现在我们在这里)
+                                                                              |
+                                                  |--&gt; createAndInitKubelet --|--&gt; BirthCry
+                                                  |                           |
+                                |--&gt; RunKubelet --|                           |--&gt; StartGarbageCollection
+                                |                 |
+                                |                 |--&gt; startKubelet --&gt; k.Run
+                                |
+</code></pre>
+<p>NewKubeletCommand &ndash;&gt; Run &ndash;&gt; run &ndash;|&ndash;&gt; http.ListenAndServe
+|
+|&ndash;&gt; daemon.SdNotify</p>
+<p>我们分析了``RunKubelet<code>--&gt;</code>createAndInitKubelet<code>--&gt;</code>NewMainKubelet<code>，此时一个初始化全部完成的kubelet结构体完成。 我们回到</code>RunKubelet<code>--&gt;</code>startKubelet<code>--&gt;</code>k.Run` 则是使用上面得到的kubelet结构体进行启动</p>
+<p>我们看一下<code>startKubelet</code>的具体实现：
+在startKubelet 中通过调用 k.Run 来启动 kubelet 中的所有模块以及主流程，然后启动 kubelet 所需要的 http server，在 v1.16 中，kubelet 默认仅启动健康检查端口 10248 和 kubelet server 的端口 10250。</p>
+<ul>
+<li>10250  –port:           kubelet server 与 apiserver 通信的端口，定期请求 apiserver 获取自己所应当处理的任务，通过该端口可以访问获取 node 资源以及状态。</li>
+<li>10248  –healthz-port:   通过访问该端口可以判断 kubelet 是否正常工作, 通过 kubelet 的启动参数 &ndash;healthz-port 和 &ndash;healthz-bind-address 来指定监听的地址和端口。</li>
+<li>10255  –read-only-port: 提供了 pod 和 node 的信息，接口以只读形式暴露出去，访问该端口不需要认证和鉴权。</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kubelet/app/server.go:1070
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">startKubelet</span>(<span style="color:#a6e22e">k</span> <span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Bootstrap</span>, <span style="color:#a6e22e">podCfg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">PodConfig</span>, <span style="color:#a6e22e">kubeCfg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubeletconfiginternal</span>.<span style="color:#a6e22e">KubeletConfiguration</span>, <span style="color:#a6e22e">kubeDeps</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubelet</span>.<span style="color:#a6e22e">Dependencies</span>, <span style="color:#a6e22e">enableCAdvisorJSONEndpoints</span>, <span style="color:#a6e22e">enableServer</span> <span style="color:#66d9ef">bool</span>) {
+	<span style="color:#75715e">// start the kubelet
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">podCfg</span>.<span style="color:#a6e22e">Updates</span>())
+
+	<span style="color:#75715e">// start the kubelet server
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">enableServer</span> {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">ListenAndServe</span>(<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">ParseIP</span>(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">Address</span>), uint(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">Port</span>), <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">TLSOptions</span>, <span style="color:#a6e22e">kubeDeps</span>.<span style="color:#a6e22e">Auth</span>, <span style="color:#a6e22e">enableCAdvisorJSONEndpoints</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EnableDebuggingHandlers</span>, <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">EnableContentionProfiling</span>)
+
+	}
+    
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ReadOnlyPort</span> &gt; <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">ListenAndServeReadOnly</span>(<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">ParseIP</span>(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">Address</span>), uint(<span style="color:#a6e22e">kubeCfg</span>.<span style="color:#a6e22e">ReadOnlyPort</span>), <span style="color:#a6e22e">enableCAdvisorJSONEndpoints</span>)
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">KubeletPodResources</span>) {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">k</span>.<span style="color:#a6e22e">ListenAndServePodResources</span>()
+	}
+}
+</code></pre></div><p>我们进入<code>k.Run(podCfg.Updates())</code>进行分析：发现他就是将kubelet所有初始化好的模块调用各自模块的start方法启动起来。
+我们主要分析一下方法最后的<code>kl.syncLoop(updates, kl)</code>实现，它监听 pod 的变化，并把它们汇聚起来。当有新的变化发生时，它会调用对应的函数，保证 pod 处于期望的状态，是负载节点中
+pod创建的核心逻辑。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// Run starts the kubelet reacting to config updates
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">updates</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">PodUpdate</span>) {
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">logServer</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">logServer</span> = <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">StripPrefix</span>(<span style="color:#e6db74">&#34;/logs/&#34;</span>, <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">FileServer</span>(<span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">Dir</span>(<span style="color:#e6db74">&#34;/var/log/&#34;</span>)))
+	}
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">kubeClient</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Warning</span>(<span style="color:#e6db74">&#34;No api server defined - no node status update will be sent.&#34;</span>)
+	}
+
+	<span style="color:#75715e">// Start the cloud provider sync manager
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">cloudResourceSyncManager</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">cloudResourceSyncManager</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">initializeModules</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">recorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">nodeRef</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#a6e22e">events</span>.<span style="color:#a6e22e">KubeletSetupFailed</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatal</span>(<span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#75715e">// Start volume manager
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">volumeManager</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">sourcesReady</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">kubeClient</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#75715e">// Start syncing node status immediately, this may set up things the runtime needs to run.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncNodeStatus</span>, <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">nodeStatusUpdateFrequency</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">fastStatusUpdateOnce</span>()
+
+		<span style="color:#75715e">// start syncing lease
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">NodeLease</span>) {
+			<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">nodeLeaseController</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+		}
+	}
+	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">updateRuntimeUp</span>, <span style="color:#ae81ff">5</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+
+	<span style="color:#75715e">// Start loop to sync iptables util rules
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">makeIPTablesUtilChains</span> {
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncNetworkUtil</span>, <span style="color:#ae81ff">1</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Minute</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#75715e">// Start a goroutine responsible for killing pods (that are not properly
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// handled by pod workers).
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podKiller</span>, <span style="color:#ae81ff">1</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+
+	<span style="color:#75715e">// Start component sync loops.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">statusManager</span>.<span style="color:#a6e22e">Start</span>()
+	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">probeManager</span>.<span style="color:#a6e22e">Start</span>()
+
+	<span style="color:#75715e">// Start syncing RuntimeClasses if enabled.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">runtimeClassManager</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">runtimeClassManager</span>.<span style="color:#a6e22e">Start</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#75715e">// Start the pod lifecycle event generator.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">Start</span>()
+	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncLoop</span>(<span style="color:#a6e22e">updates</span>, <span style="color:#a6e22e">kl</span>)
+}
+</code></pre></div><h3 id="heading-3">总结</h3>
+<p>此时，Kubelet启动的框架已经分析完毕，结构图如下：</p>
+<pre><code>                                                                              |--&gt; NewMainKubelet
+                                                                              |
+                                                  |--&gt; createAndInitKubelet --|--&gt; BirthCry
+                                                  |                           |
+                                |--&gt; RunKubelet --|                           |--&gt; StartGarbageCollection
+                                |                 |
+                                |                 |--&gt; startKubelet --&gt; k.Run(我们现在在这里)
+                                |
+</code></pre>
+<p>NewKubeletCommand &ndash;&gt; Run &ndash;&gt; run &ndash;|&ndash;&gt; http.ListenAndServe
+|
+|&ndash;&gt; daemon.SdNotify</p>
+<p>接下来我会重点分析kubelet中几个核心模块，如：kublete创建pod流程，kubelet如何与api server交互，kubelet垃圾回收机制</p>
+<h3 id="heading-4">参考</h3>
+<p><a href="https://k8smeetup.github.io/docs/admin/kubelet/">https://k8smeetup.github.io/docs/admin/kubelet/</a></p>
 
     </article>
 
