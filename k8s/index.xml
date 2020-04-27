@@ -7,10 +7,22 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Thu, 23 Apr 2020 14:52:56 +0800</lastBuildDate>
+    <lastBuildDate>Fri, 24 Apr 2020 15:32:13 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/k8s/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>Kube Scheduler 优选策略源码分析</title>
+      <link>https://wukaiying.github.io/k8s/kube-scheduler-priority-source-read/</link>
+      <pubDate>Fri, 24 Apr 2020 15:32:13 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/kube-scheduler-priority-source-read/</guid>
+      <description>版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 预选阶段完成后，进入优选阶段，将需要调度的Pod列表和Node列表传入各种优选算法进行打分，最终整合成结果集HostPriorityList
+//pkg/scheduler/core/generic_scheduler.go:189 // Schedule tries to schedule the given pod to one of the nodes in the node list. // If it succeeds, it will return the name of the node. // If it fails, it will return a FitError error with reasons. func (g *genericScheduler) Schedule(pod *v1.Pod, pluginContext *framework.PluginContext) (result ScheduleResult, err error) { ... trace.Step(&amp;#34;Basic checks done&amp;#34;) startPredicateEvalTime := time.Now() filteredNodes, failedPredicateMap, filteredNodesStatuses, err := g.findNodesThatFit(pluginContext, pod) if err != nil { return result, err } // Run &amp;#34;postfilter&amp;#34; plugins. 	postfilterStatus := g.framework.RunPostFilterPlugins(pluginContext, pod, filteredNodes, filteredNodesStatuses) if !</description>
+    </item>
     
     <item>
       <title>Kubelet 架构分析</title>

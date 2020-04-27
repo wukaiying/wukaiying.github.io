@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Kube Scheduler 优选策略源码分析 - Kaiying</title>
+  <meta property="og:title" content="Kube Scheduler 优选策略源码分析 - Kaiying" />
+  <meta name="twitter:title" content="Kube Scheduler 优选策略源码分析 - Kaiying" />
+  <meta name="description" content="k8s scheduler 优选策略源码分析">
+  <meta property="og:description" content="k8s scheduler 优选策略源码分析">
+  <meta name="twitter:description" content="k8s scheduler 优选策略源码分析">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/kube-scheduler-priority-source-read/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Kube Scheduler 优选策略源码分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 24, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">版本环境</a></li>
+        <li><a href="#heading-1">前言</a></li>
+        <li><a href="#heading-2">打分算法分析</a></li>
+        <li><a href="#functionmap-reduce">Function和Map-Reduce实例分析</a></li>
+        <li><a href="#heading-3">总结</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <h3 id="heading">版本环境</h3>
+<ul>
+<li>
+<p>kubernetes版本：kubernetes:v1.16.0</p>
+</li>
+<li>
+<p>go环境：go version go1.13.4 darwin/amd64</p>
+</li>
+</ul>
+<h3 id="heading-1">前言</h3>
+<p>预选阶段完成后，进入优选阶段，将需要调度的Pod列表和Node列表传入各种优选算法进行打分，最终整合成结果集HostPriorityList</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/scheduler/core/generic_scheduler.go:189
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Schedule tries to schedule the given pod to one of the nodes in the node list.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// If it succeeds, it will return the name of the node.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// If it fails, it will return a FitError error with reasons.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">g</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">genericScheduler</span>) <span style="color:#a6e22e">Schedule</span>(<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">pluginContext</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">PluginContext</span>) (<span style="color:#a6e22e">result</span> <span style="color:#a6e22e">ScheduleResult</span>, <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>) {
+	
+    <span style="color:#f92672">...</span>
+
+	<span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">Step</span>(<span style="color:#e6db74">&#34;Basic checks done&#34;</span>)
+	<span style="color:#a6e22e">startPredicateEvalTime</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Now</span>()
+	<span style="color:#a6e22e">filteredNodes</span>, <span style="color:#a6e22e">failedPredicateMap</span>, <span style="color:#a6e22e">filteredNodesStatuses</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">findNodesThatFit</span>(<span style="color:#a6e22e">pluginContext</span>, <span style="color:#a6e22e">pod</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// Run &#34;postfilter&#34; plugins.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">postfilterStatus</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">RunPostFilterPlugins</span>(<span style="color:#a6e22e">pluginContext</span>, <span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">filteredNodes</span>, <span style="color:#a6e22e">filteredNodesStatuses</span>)
+	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">postfilterStatus</span>.<span style="color:#a6e22e">IsSuccess</span>() {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">postfilterStatus</span>.<span style="color:#a6e22e">AsError</span>()
+	}
+
+	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">filteredNodes</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">FitError</span>{
+			<span style="color:#a6e22e">Pod</span>:                   <span style="color:#a6e22e">pod</span>,
+			<span style="color:#a6e22e">NumAllNodes</span>:           <span style="color:#a6e22e">numNodes</span>,
+			<span style="color:#a6e22e">FailedPredicates</span>:      <span style="color:#a6e22e">failedPredicateMap</span>,
+			<span style="color:#a6e22e">FilteredNodesStatuses</span>: <span style="color:#a6e22e">filteredNodesStatuses</span>,
+		}
+	}
+	<span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">Step</span>(<span style="color:#e6db74">&#34;Computing predicates done&#34;</span>)
+
+    <span style="color:#75715e">//上面已经完成初步过滤和预选，现在进入优选
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">metaPrioritiesInterface</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">priorityMetaProducer</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">nodeInfoSnapshot</span>.<span style="color:#a6e22e">NodeInfoMap</span>)
+	<span style="color:#a6e22e">priorityList</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">PrioritizeNodes</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">nodeInfoSnapshot</span>.<span style="color:#a6e22e">NodeInfoMap</span>, <span style="color:#a6e22e">metaPrioritiesInterface</span>, <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">prioritizers</span>, <span style="color:#a6e22e">filteredNodes</span>, <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">extenders</span>, <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">framework</span>, <span style="color:#a6e22e">pluginContext</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">err</span>
+	}
+	<span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">Step</span>(<span style="color:#e6db74">&#34;Prioritizing done&#34;</span>)
+
+	<span style="color:#a6e22e">host</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">selectHost</span>(<span style="color:#a6e22e">priorityList</span>)
+	<span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">Step</span>(<span style="color:#e6db74">&#34;Selecting host done&#34;</span>)
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">ScheduleResult</span>{
+		<span style="color:#a6e22e">SuggestedHost</span>:  <span style="color:#a6e22e">host</span>,
+		<span style="color:#a6e22e">EvaluatedNodes</span>: len(<span style="color:#a6e22e">filteredNodes</span>) <span style="color:#f92672">+</span> len(<span style="color:#a6e22e">failedPredicateMap</span>),
+		<span style="color:#a6e22e">FeasibleNodes</span>:  len(<span style="color:#a6e22e">filteredNodes</span>),
+	}, <span style="color:#a6e22e">err</span>
+}
+</code></pre></div><p>接下来我们看一下优选算法的具体实现，进入<code>priorityList, err := PrioritizeNodes(...)</code> 查看</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// PrioritizeNodes prioritizes the nodes by running the individual priority functions in parallel.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Each priority function is expected to set a score of 0-10
+</span><span style="color:#75715e"></span><span style="color:#75715e">// 0 is the lowest priority score (least preferred node) and 10 is the highest
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Each priority function can also have its own weight
+</span><span style="color:#75715e"></span><span style="color:#75715e">// The node scores returned by the priority function are multiplied by the weights to get weighted scores
+</span><span style="color:#75715e"></span><span style="color:#75715e">// All scores are finally combined (added) to get the total weighted scores of all nodes
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">PrioritizeNodes</span>(
+	<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>,
+	<span style="color:#a6e22e">nodeNameToInfo</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#f92672">*</span><span style="color:#a6e22e">schedulernodeinfo</span>.<span style="color:#a6e22e">NodeInfo</span>,
+	<span style="color:#a6e22e">meta</span> <span style="color:#66d9ef">interface</span>{},
+	<span style="color:#a6e22e">priorityConfigs</span> []<span style="color:#a6e22e">priorities</span>.<span style="color:#a6e22e">PriorityConfig</span>,
+	<span style="color:#a6e22e">nodes</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Node</span>,
+	<span style="color:#a6e22e">extenders</span> []<span style="color:#a6e22e">algorithm</span>.<span style="color:#a6e22e">SchedulerExtender</span>,
+	<span style="color:#a6e22e">framework</span> <span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">Framework</span>,
+	<span style="color:#a6e22e">pluginContext</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">PluginContext</span>) (<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, <span style="color:#66d9ef">error</span>) {
+<span style="color:#f92672">...</span>
+</code></pre></div><p>根据上面注释描述我们可以总结出优选算法的基本流程：</p>
+<ul>
+<li>每一个优选函数之间是相互独立的，且每个优选函数都有一个权重值</li>
+<li>每个优选函数可以并行执行，他为每个node进行打分，分数为[0-10]</li>
+<li>然后每个node的得分计算公式为每个优选函数分数乘以该优选函数对应的权重，并累计相加，为该node最后得分</li>
+</ul>
+<p>看一下<code>HostPriorityList</code>，这个HostPriorityList数组保存了每个Node的名字和它对应的分数，最后选出分数最高的Node对Pod进行绑定和调度</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">HostPriority</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#a6e22e">Host</span> <span style="color:#66d9ef">string</span>
+	<span style="color:#a6e22e">Score</span> <span style="color:#66d9ef">int</span>
+}
+<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">HostPriorityList</span> []<span style="color:#a6e22e">HostPriority</span>
+</code></pre></div><p>假设有三个node(N1,N2,N3)进入优选，有三个优选算法(A1,A2,A3)，计算结果如下：</p>
+<table>
+<thead>
+<tr>
+<th><strong>N1</strong></th>
+<th><strong>N2</strong></th>
+<th><strong>N3</strong></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A1</td>
+<td>{ Name:“node1”,Score:5,PriorityConfig:{…weight:1}}</td>
+<td>{ Name:“node2”,Score:3,PriorityConfig:{…weight:1}}</td>
+<td>{ Name:“node3”,Score:1,PriorityConfig:{…weight:1}}</td>
+</tr>
+<tr>
+<td>A2</td>
+<td>{ Name:“node1”,Score:6,PriorityConfig:{…weight:1}}</td>
+<td>{ Name:“node2”,Score:2,PriorityConfig:{…weight:1}}</td>
+<td>{ Name:“node3”,Score:3,PriorityConfig:{…weight:1}}</td>
+</tr>
+<tr>
+<td>A3</td>
+<td>{ Name:“node1”,Score:4,PriorityConfig:{…weight:1}}</td>
+<td>{ Name:“node2”,Score:7,PriorityConfig:{…weight:1.}}</td>
+<td>{ Name:“node3”,Score:2,PriorityConfig:{…weight:1}}</td>
+</tr>
+</tbody>
+</table>
+<p>每个node最后得分如下：</p>
+<pre><code>HostPriorityList =[{ Name:&quot;node1&quot;,Score:15},{ Name:&quot;node2&quot;,Score:12},{ Name:&quot;node3&quot;,Score:6}]
+</code></pre><h3 id="heading-2">打分算法分析</h3>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/scheduler/core/generic_scheduler.go:696
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">PrioritizeNodes</span>(
+	<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>,
+	<span style="color:#a6e22e">nodeNameToInfo</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#f92672">*</span><span style="color:#a6e22e">schedulernodeinfo</span>.<span style="color:#a6e22e">NodeInfo</span>,
+	<span style="color:#a6e22e">meta</span> <span style="color:#66d9ef">interface</span>{},
+	<span style="color:#a6e22e">priorityConfigs</span> []<span style="color:#a6e22e">priorities</span>.<span style="color:#a6e22e">PriorityConfig</span>,
+	<span style="color:#a6e22e">nodes</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Node</span>,
+	<span style="color:#a6e22e">extenders</span> []<span style="color:#a6e22e">algorithm</span>.<span style="color:#a6e22e">SchedulerExtender</span>,
+	<span style="color:#a6e22e">framework</span> <span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">Framework</span>,
+	<span style="color:#a6e22e">pluginContext</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">framework</span>.<span style="color:#a6e22e">PluginContext</span>) (<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, <span style="color:#66d9ef">error</span>) {
+	
+    <span style="color:#75715e">//如果没有添加优选策略，则每个node的得分都是1
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">priorityConfigs</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> len(<span style="color:#a6e22e">extenders</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#a6e22e">result</span> <span style="color:#f92672">:=</span> make(<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, <span style="color:#ae81ff">0</span>, len(<span style="color:#a6e22e">nodes</span>))
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">nodes</span> {
+			<span style="color:#a6e22e">hostPriority</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">EqualPriorityMap</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">meta</span>, <span style="color:#a6e22e">nodeNameToInfo</span>[<span style="color:#a6e22e">nodes</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Name</span>])
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+			}
+			<span style="color:#a6e22e">result</span> = append(<span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">hostPriority</span>)
+		}
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#66d9ef">nil</span>
+	}    
+    <span style="color:#f92672">...</span>
+	<span style="color:#a6e22e">results</span> <span style="color:#f92672">:=</span> make([]<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, len(<span style="color:#a6e22e">priorityConfigs</span>), len(<span style="color:#a6e22e">priorityConfigs</span>))
+
+	<span style="color:#75715e">// DEPRECATED: we can remove this when all priorityConfigs implement the
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// Map-Reduce pattern.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//遍历每一个priorityConfigs，判断每一个priorityConfigs中是否包含Function，如果有则使用Function方式给所有nodes计算分数，一次遍历后，nodes中的每个节点得到了优选算法1的打分
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//整个遍历完成后，每个node都会有n个优选算法的打分
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//该方式目前已经不再推荐，后续都会改成map-reduce方式
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">priorityConfigs</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Function</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#ae81ff">1</span>)
+			<span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">index</span> <span style="color:#66d9ef">int</span>) {
+				<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
+				<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>
+                <span style="color:#75715e">//每个优选算法启动一个goroutine来计算该node在该算法下的分数[0-10]
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">index</span>], <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Function</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">nodeNameToInfo</span>, <span style="color:#a6e22e">nodes</span>)
+				<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+					<span style="color:#a6e22e">appendError</span>(<span style="color:#a6e22e">err</span>)
+				}
+			}(<span style="color:#a6e22e">i</span>)
+		} <span style="color:#66d9ef">else</span> {
+			<span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">i</span>] = make(<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, len(<span style="color:#a6e22e">nodes</span>))
+		}
+	}
+
+
+    <span style="color:#75715e">//使用map-reduce方式来计算分数
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">workqueue</span>.<span style="color:#a6e22e">ParallelizeUntil</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#ae81ff">16</span>, len(<span style="color:#a6e22e">nodes</span>), <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">index</span> <span style="color:#66d9ef">int</span>) {
+		<span style="color:#a6e22e">nodeInfo</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nodeNameToInfo</span>[<span style="color:#a6e22e">nodes</span>[<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Name</span>]
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">priorityConfigs</span> {
+            <span style="color:#75715e">//跳过function 打分类型
+</span><span style="color:#75715e"></span>			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Function</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">continue</span>
+			}
+
+			<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>
+            <span style="color:#75715e">//通过map函数来进行并行计算,index表示第几个优选函数
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">i</span>][<span style="color:#a6e22e">index</span>], <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Map</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">meta</span>, <span style="color:#a6e22e">nodeInfo</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">appendError</span>(<span style="color:#a6e22e">err</span>)
+				<span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">i</span>][<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Host</span> = <span style="color:#a6e22e">nodes</span>[<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Name</span>
+			}
+		}
+	})
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">priorityConfigs</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Reduce</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">continue</span>
+		}
+		<span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#ae81ff">1</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">index</span> <span style="color:#66d9ef">int</span>) {
+			<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
+            <span style="color:#75715e">//使用reduce函数来进行分数聚合
+</span><span style="color:#75715e"></span>			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Reduce</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">meta</span>, <span style="color:#a6e22e">nodeNameToInfo</span>, <span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">index</span>]); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">appendError</span>(<span style="color:#a6e22e">err</span>)
+			}
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">10</span>) {
+				<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">hostPriority</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">index</span>] {
+					<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;%v -&gt; %v: %v, Score: (%d)&#34;</span>, <span style="color:#a6e22e">util</span>.<span style="color:#a6e22e">GetPodFullName</span>(<span style="color:#a6e22e">pod</span>), <span style="color:#a6e22e">hostPriority</span>.<span style="color:#a6e22e">Host</span>, <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">index</span>].<span style="color:#a6e22e">Name</span>, <span style="color:#a6e22e">hostPriority</span>.<span style="color:#a6e22e">Score</span>)
+				}
+			}
+		}(<span style="color:#a6e22e">i</span>)
+	}
+	<span style="color:#75715e">// Wait for all computations to be finished.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
+	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">errs</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>{}, <span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">NewAggregate</span>(<span style="color:#a6e22e">errs</span>)
+	}
+
+	<span style="color:#75715e">//计算每个node的最终得分，计算方式为每个node中所有优选算法分数乘以权重之和
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">nodes</span> {
+		<span style="color:#a6e22e">result</span> = append(<span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>{<span style="color:#a6e22e">Host</span>: <span style="color:#a6e22e">nodes</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Name</span>, <span style="color:#a6e22e">Score</span>: <span style="color:#ae81ff">0</span>})
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">j</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">priorityConfigs</span> {
+			<span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> <span style="color:#f92672">+=</span> <span style="color:#a6e22e">results</span>[<span style="color:#a6e22e">j</span>][<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">priorityConfigs</span>[<span style="color:#a6e22e">j</span>].<span style="color:#a6e22e">Weight</span>
+		}
+
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">j</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">scoresMap</span> {
+			<span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> <span style="color:#f92672">+=</span> <span style="color:#a6e22e">scoresMap</span>[<span style="color:#a6e22e">j</span>][<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span>
+		}
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">10</span>) {
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">result</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Host %s =&gt; Score %d&#34;</span>, <span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Host</span>, <span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span>)
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><h3 id="functionmap-reduce">Function和Map-Reduce实例分析</h3>
+<p>从上面的分析我们可以看到，优选过程计算分数有两种方式，分别是Function类型，和Map-Reduce类型，这里我们各自选取一个例子来做分析：</p>
+<p><em>InterPodAffinityPriority(Function类型)</em></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/scheduler/algorithm/priorities/interpod_affinity.go：99
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">ipa</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">InterPodAffinity</span>) <span style="color:#a6e22e">CalculateInterPodAffinityPriority</span>(<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">nodeNameToInfo</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#f92672">*</span><span style="color:#a6e22e">schedulernodeinfo</span>.<span style="color:#a6e22e">NodeInfo</span>, <span style="color:#a6e22e">nodes</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Node</span>) (<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#a6e22e">affinity</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Affinity</span>
+	<span style="color:#a6e22e">hasAffinityConstraints</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">affinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">PodAffinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span>
+	<span style="color:#a6e22e">hasAntiAffinityConstraints</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">affinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">PodAntiAffinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span>
+    <span style="color:#f92672">...</span>
+	<span style="color:#75715e">//上面省略的步骤，是已经为每一个node，计算出了一个初始分数，该分数可能大于10，下面会通过算法，会将每一个node的处理在10分以内
+</span><span style="color:#75715e"></span>
+    <span style="color:#75715e">//遍历每一个node的分数，选出一个最高得分，选出一个最低得分
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">nodes</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pm</span>.<span style="color:#a6e22e">counts</span>[<span style="color:#a6e22e">i</span>] &gt; <span style="color:#a6e22e">maxCount</span> {
+			<span style="color:#a6e22e">maxCount</span> = <span style="color:#a6e22e">pm</span>.<span style="color:#a6e22e">counts</span>[<span style="color:#a6e22e">i</span>]
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pm</span>.<span style="color:#a6e22e">counts</span>[<span style="color:#a6e22e">i</span>] &lt; <span style="color:#a6e22e">minCount</span> {
+			<span style="color:#a6e22e">minCount</span> = <span style="color:#a6e22e">pm</span>.<span style="color:#a6e22e">counts</span>[<span style="color:#a6e22e">i</span>]
+		}
+	}
+
+	<span style="color:#75715e">// calculate final priority score for each node
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">result</span> <span style="color:#f92672">:=</span> make(<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>, <span style="color:#ae81ff">0</span>, len(<span style="color:#a6e22e">nodes</span>))
+    <span style="color:#75715e">//计算最高分和最低分的差值
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">maxMinDiff</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">maxCount</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">minCount</span>
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span>, <span style="color:#a6e22e">node</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">nodes</span> {
+		<span style="color:#a6e22e">fScore</span> <span style="color:#f92672">:=</span> float64(<span style="color:#ae81ff">0</span>)
+        <span style="color:#75715e">//如果差值大于0
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">maxMinDiff</span> &gt; <span style="color:#ae81ff">0</span> {
+            <span style="color:#75715e">//MaxPriority=10，假设当前node的计算结果是5，最大count是20，最小count是-3，那么这里就是10*[5-(-3)/20-(-3)]
+</span><span style="color:#75715e"></span>            <span style="color:#75715e">//这里fscore肯定小10
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">fScore</span> = float64(<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">MaxPriority</span>) <span style="color:#f92672">*</span> (float64(<span style="color:#a6e22e">pm</span>.<span style="color:#a6e22e">counts</span>[<span style="color:#a6e22e">i</span>]<span style="color:#f92672">-</span><span style="color:#a6e22e">minCount</span>) <span style="color:#f92672">/</span> float64(<span style="color:#a6e22e">maxCount</span><span style="color:#f92672">-</span><span style="color:#a6e22e">minCount</span>))
+		}
+        <span style="color:#75715e">// 如果分差不大于0，这时候int(fScore)也就是0，对于各个node的结果都是0；
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">result</span> = append(<span style="color:#a6e22e">result</span>, <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>{<span style="color:#a6e22e">Host</span>: <span style="color:#a6e22e">node</span>.<span style="color:#a6e22e">Name</span>, <span style="color:#a6e22e">Score</span>: int(<span style="color:#a6e22e">fScore</span>)})
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">10</span>) {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;%v -&gt; %v: InterPodAffinityPriority, Score: (%d)&#34;</span>, <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">Name</span>, <span style="color:#a6e22e">node</span>.<span style="color:#a6e22e">Name</span>, int(<span style="color:#a6e22e">fScore</span>))
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">result</span>, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>我们可以发现最终这个函数计算出了每个node的分值，这个分值在[0-10]之间。所以说到底Function做的事情就是根据一定的规则给每个node赋一个分值，这个分值要求在[0-10]之间，然后把这个HostPriorityList返回就行。</p>
+<p><em>CalculateNodeAffinityPriorityMap(Map方式)</em></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/scheduler/algorithm/priorities/node_affinity.go:34
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">// CalculateNodeAffinityPriorityMap prioritizes nodes according to node affinity scheduling preferences
+</span><span style="color:#75715e"></span><span style="color:#75715e">// indicated in PreferredDuringSchedulingIgnoredDuringExecution. Each time a node matches a preferredSchedulingTerm,
+</span><span style="color:#75715e"></span><span style="color:#75715e">// it will get an add of preferredSchedulingTerm.Weight. Thus, the more preferredSchedulingTerms
+</span><span style="color:#75715e"></span><span style="color:#75715e">// the node satisfies and the more the preferredSchedulingTerm that is satisfied weights, the higher
+</span><span style="color:#75715e"></span><span style="color:#75715e">// score the node gets.
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">CalculateNodeAffinityPriorityMap</span>(<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">meta</span> <span style="color:#66d9ef">interface</span>{}, <span style="color:#a6e22e">nodeInfo</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">schedulernodeinfo</span>.<span style="color:#a6e22e">NodeInfo</span>) (<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>, <span style="color:#66d9ef">error</span>) {
+	<span style="color:#a6e22e">node</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nodeInfo</span>.<span style="color:#a6e22e">Node</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">node</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>{}, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;node not found&#34;</span>)
+	}
+
+	<span style="color:#75715e">// default is the podspec.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">affinity</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Affinity</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">priorityMeta</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">meta</span>.(<span style="color:#f92672">*</span><span style="color:#a6e22e">priorityMetadata</span>); <span style="color:#a6e22e">ok</span> {
+		<span style="color:#75715e">// We were able to parse metadata, use affinity from there.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">affinity</span> = <span style="color:#a6e22e">priorityMeta</span>.<span style="color:#a6e22e">affinity</span>
+	}
+
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">count</span> <span style="color:#66d9ef">int32</span>
+	<span style="color:#75715e">// A nil element of PreferredDuringSchedulingIgnoredDuringExecution matches no objects.
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// An element of PreferredDuringSchedulingIgnoredDuringExecution that refers to an
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// empty PreferredSchedulingTerm matches all objects.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">affinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">NodeAffinity</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">NodeAffinity</span>.<span style="color:#a6e22e">PreferredDuringSchedulingIgnoredDuringExecution</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#75715e">// Match PreferredDuringSchedulingIgnoredDuringExecution term by term.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">NodeAffinity</span>.<span style="color:#a6e22e">PreferredDuringSchedulingIgnoredDuringExecution</span> {
+			<span style="color:#a6e22e">preferredSchedulingTerm</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">affinity</span>.<span style="color:#a6e22e">NodeAffinity</span>.<span style="color:#a6e22e">PreferredDuringSchedulingIgnoredDuringExecution</span>[<span style="color:#a6e22e">i</span>]
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">preferredSchedulingTerm</span>.<span style="color:#a6e22e">Weight</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+				<span style="color:#66d9ef">continue</span>
+			}
+
+			<span style="color:#75715e">// TODO: Avoid computing it for all nodes if this becomes a performance problem.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">nodeSelector</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">v1helper</span>.<span style="color:#a6e22e">NodeSelectorRequirementsAsSelector</span>(<span style="color:#a6e22e">preferredSchedulingTerm</span>.<span style="color:#a6e22e">Preference</span>.<span style="color:#a6e22e">MatchExpressions</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>{}, <span style="color:#a6e22e">err</span>
+			}
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">nodeSelector</span>.<span style="color:#a6e22e">Matches</span>(<span style="color:#a6e22e">labels</span>.<span style="color:#a6e22e">Set</span>(<span style="color:#a6e22e">node</span>.<span style="color:#a6e22e">Labels</span>)) {
+				<span style="color:#a6e22e">count</span> <span style="color:#f92672">+=</span> <span style="color:#a6e22e">preferredSchedulingTerm</span>.<span style="color:#a6e22e">Weight</span>
+			}
+		}
+	}
+
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriority</span>{
+		<span style="color:#a6e22e">Host</span>:  <span style="color:#a6e22e">node</span>.<span style="color:#a6e22e">Name</span>,
+		<span style="color:#a6e22e">Score</span>: int(<span style="color:#a6e22e">count</span>),
+	}, <span style="color:#66d9ef">nil</span>
+}
+
+<span style="color:#75715e">// CalculateNodeAffinityPriorityReduce is a reduce function for node affinity priority calculation.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">CalculateNodeAffinityPriorityReduce</span> = <span style="color:#a6e22e">NormalizeReduce</span>(<span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">MaxPriority</span>, <span style="color:#66d9ef">false</span>)
+</code></pre></div><p>撇开具体的亲和性计算细节，我们可以发现这个的count没有特定的规则，可能会加到10以上；另外这里的返回值是HostPriority类型，前面的Function返回了HostPriorityList类型。
+我们来看下他对应的reduce函数</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/scheduler/algorithm/priorities/reduce.go:28
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">// NormalizeReduce generates a PriorityReduceFunction that can normalize the result
+</span><span style="color:#75715e"></span><span style="color:#75715e">// scores to [0, maxPriority]. If reverse is set to true, it reverses the scores by
+</span><span style="color:#75715e"></span><span style="color:#75715e">// subtracting it from maxPriority.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NormalizeReduce</span>(<span style="color:#a6e22e">maxPriority</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">reverse</span> <span style="color:#66d9ef">bool</span>) <span style="color:#a6e22e">PriorityReduceFunction</span> {
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">func</span>(
+		<span style="color:#a6e22e">_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>,
+		<span style="color:#a6e22e">_</span> <span style="color:#66d9ef">interface</span>{},
+		<span style="color:#a6e22e">_</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#f92672">*</span><span style="color:#a6e22e">schedulernodeinfo</span>.<span style="color:#a6e22e">NodeInfo</span>,
+		<span style="color:#a6e22e">result</span> <span style="color:#a6e22e">schedulerapi</span>.<span style="color:#a6e22e">HostPriorityList</span>) <span style="color:#66d9ef">error</span> {
+
+		<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">maxCount</span> <span style="color:#66d9ef">int</span>
+        <span style="color:#75715e">//选出最大的分数
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">result</span> {
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> &gt; <span style="color:#a6e22e">maxCount</span> {
+				<span style="color:#a6e22e">maxCount</span> = <span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span>
+			}
+		}
+
+        <span style="color:#75715e">///最大分数为0,所有node得分为0
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">maxCount</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">reverse</span> {
+				<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">result</span> {
+					<span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> = <span style="color:#a6e22e">maxPriority</span>
+				}
+			}
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+		}
+
+		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">result</span> {
+			<span style="color:#a6e22e">score</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span>
+            
+            <span style="color:#75715e">//举个例子：10*(5/20)
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">score</span> = <span style="color:#a6e22e">maxPriority</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">score</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">maxCount</span>
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">reverse</span> {
+                <span style="color:#75715e">// 如果score是3，得到7；如果score是4，得到6，结果反转；
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">score</span> = <span style="color:#a6e22e">maxPriority</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">score</span>
+			}
+
+			<span style="color:#a6e22e">result</span>[<span style="color:#a6e22e">i</span>].<span style="color:#a6e22e">Score</span> = <span style="color:#a6e22e">score</span>
+		}
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+}
+</code></pre></div><p>最终通过reduce也可以得到每个node的分数，范围也是[0-10]</p>
+<h3 id="heading-3">总结</h3>
+<p>Function：一个算法一次性计算出所有node的Score，这个Score的范围是规定的[0-10]</p>
+<p>Map-Reduce：一个Map算法计算1个node的Score，这个Score可以灵活处理，可能是20，可能是-3；Map过程并发进行；最终得到的结果result通过Reduce归约，将这个算法对应的所有node的分值归约为[0-10]</p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/kubelet-structure/" data-toggle="tooltip" data-placement="top" title="Kubelet 架构分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>

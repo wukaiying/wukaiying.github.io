@@ -45,6 +45,29 @@
   <div class="main" role="main">
     <section class="list section-list">
       <article class="article">
+        <a href="/k8s/kube-scheduler-priority-source-read/" class="article-titles">
+          <h2 class="article-title">Kube Scheduler 优选策略源码分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 24, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          版本环境   kubernetes版本：kubernetes:v1.16.0
+  go环境：go version go1.13.4 darwin/amd64
+  前言 预选阶段完成后，进入优选阶段，将需要调度的Pod列表和Node列表传入各种优选算法进行打分，最终整合成结果集HostPriorityList
+//pkg/scheduler/core/generic_scheduler.go:189 // Schedule tries to schedule the given pod to one of the nodes in the node list. // If it succeeds, it will return the name of the node. // If it fails, it will return a FitError error with reasons. func (g *genericScheduler) Schedule(pod *v1.Pod, pluginContext *framework.PluginContext) (result ScheduleResult, err error) { ... trace.Step(&#34;Basic checks done&#34;) startPredicateEvalTime := time.Now() filteredNodes, failedPredicateMap, filteredNodesStatuses, err := g.findNodesThatFit(pluginContext, pod) if err != nil { return result, err } // Run &#34;postfilter&#34; plugins. 	postfilterStatus := g.framework.RunPostFilterPlugins(pluginContext, pod, filteredNodes, filteredNodesStatuses) if !
+        </div>
+        <div class="article-readmore"><a href="/k8s/kube-scheduler-priority-source-read/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/kubelet-structure/" class="article-titles">
           <h2 class="article-title">Kubelet 架构分析</h2>
           
