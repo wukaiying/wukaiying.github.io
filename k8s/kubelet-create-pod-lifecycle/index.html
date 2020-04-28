@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Kubelet 创建pod流程分析 - Kaiying</title>
+  <meta property="og:title" content="Kubelet 创建pod流程分析 - Kaiying" />
+  <meta name="twitter:title" content="Kubelet 创建pod流程分析 - Kaiying" />
+  <meta name="description" content="Kubelet 创建pod流程分析">
+  <meta property="og:description" content="Kubelet 创建pod流程分析">
+  <meta name="twitter:description" content="Kubelet 创建pod流程分析">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/kubelet-create-pod-lifecycle/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Kubelet 创建pod流程分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 28, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">前言</a></li>
+        <li><a href="#syncloop">syncLoop</a></li>
+        <li><a href="#handlepodadditions">HandlePodAdditions</a></li>
+        <li><a href="#dispatchwork">dispatchWork</a></li>
+        <li><a href="#heading-1">创建容器逻辑</a></li>
+        <li><a href="#heading-2">总结</a></li>
+        <li><a href="#heading-3">参考</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <h3 id="heading">前言</h3>
+<p>上一节我们分析了kubelet启动的基本流程，这一节我们分析一下当有新的pod分配到当前节点时，kubelet如何创建一个pod</p>
+<h3 id="syncloop">syncLoop</h3>
+<p>上一节最后我们分析到<code>kl.syncLoop(updates, kl)</code>，是kubelet里面一个主循环逻辑，看一下它的具体实现：
+它从不同的管道（文件、URL 和 apiserver）监听变化，并把它们汇聚起来。
+当有新的变化发生时，它会调用对应的处理函数，保证 pod 处于期望的状态。
+如果 pod 没有变化，它也会定期保证所有的容器和最新的期望状态保持一致。这个方法是 for 循环，不会退出。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">syncLoop</span>(<span style="color:#a6e22e">updates</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">PodUpdate</span>, <span style="color:#a6e22e">handler</span> <span style="color:#a6e22e">SyncHandler</span>) {
+	<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Starting kubelet main sync loop.&#34;</span>)
+	<span style="color:#a6e22e">syncTicker</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">NewTicker</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">syncTicker</span>.<span style="color:#a6e22e">Stop</span>()
+	<span style="color:#a6e22e">housekeepingTicker</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">NewTicker</span>(<span style="color:#a6e22e">housekeepingPeriod</span>)
+	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">housekeepingTicker</span>.<span style="color:#a6e22e">Stop</span>()
+	<span style="color:#a6e22e">plegCh</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">Watch</span>()
+	<span style="color:#66d9ef">const</span> (
+		<span style="color:#a6e22e">base</span>   = <span style="color:#ae81ff">100</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span>
+		<span style="color:#a6e22e">max</span>    = <span style="color:#ae81ff">5</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>
+		<span style="color:#a6e22e">factor</span> = <span style="color:#ae81ff">2</span>
+	)
+	<span style="color:#a6e22e">duration</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">base</span>
+	<span style="color:#66d9ef">for</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">runtimeState</span>.<span style="color:#a6e22e">runtimeErrors</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;skipping pod synchronization - %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+			<span style="color:#75715e">// exponential backoff
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">duration</span>)
+			<span style="color:#a6e22e">duration</span> = <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>(<span style="color:#a6e22e">math</span>.<span style="color:#a6e22e">Min</span>(float64(<span style="color:#a6e22e">max</span>), <span style="color:#a6e22e">factor</span><span style="color:#f92672">*</span>float64(<span style="color:#a6e22e">duration</span>)))
+			<span style="color:#66d9ef">continue</span>
+		}
+		<span style="color:#75715e">// reset backoff if we have a success
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">duration</span> = <span style="color:#a6e22e">base</span>
+
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncLoopMonitor</span>.<span style="color:#a6e22e">Store</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>())
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncLoopIteration</span>(<span style="color:#a6e22e">updates</span>, <span style="color:#a6e22e">handler</span>, <span style="color:#a6e22e">syncTicker</span>.<span style="color:#a6e22e">C</span>, <span style="color:#a6e22e">housekeepingTicker</span>.<span style="color:#a6e22e">C</span>, <span style="color:#a6e22e">plegCh</span>) {
+			<span style="color:#66d9ef">break</span>
+		}
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">syncLoopMonitor</span>.<span style="color:#a6e22e">Store</span>(<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>())
+	}
+}
+</code></pre></div><p>我们看一下for循环中的核心逻辑<code>syncLoopIteration</code></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">syncLoopIteration</span>(<span style="color:#a6e22e">configCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">PodUpdate</span>, <span style="color:#a6e22e">handler</span> <span style="color:#a6e22e">SyncHandler</span>,
+	<span style="color:#a6e22e">syncCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>, <span style="color:#a6e22e">housekeepingCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>, <span style="color:#a6e22e">plegCh</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">PodLifecycleEvent</span>) <span style="color:#66d9ef">bool</span> {
+	<span style="color:#66d9ef">select</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">u</span>, <span style="color:#a6e22e">open</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">configCh</span>:
+		<span style="color:#75715e">// Update from a config source; dispatch it to the right handler
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// callback.
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">open</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Update channel is closed. Exiting the sync loop.&#34;</span>)
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>
+		}
+
+		<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Op</span> {
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">ADD</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (ADD, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#75715e">// After restarting, kubelet will get all existing pods through
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// ADD as if they are new pods. These pods will then go through the
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// admission process and *may* be rejected. This can be resolved
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// once we have checkpointing.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodAdditions</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">UPDATE</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (UPDATE, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">PodsWithDeletionTimestamps</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodUpdates</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">REMOVE</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (REMOVE, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodRemoves</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">RECONCILE</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (RECONCILE, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodReconcile</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">DELETE</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (DELETE, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#75715e">// DELETE is treated as a UPDATE because of graceful deletion.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodUpdates</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">RESTORE</span>:
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (RESTORE, %q): %q&#34;</span>, <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>))
+			<span style="color:#75715e">// These are pods restored from the checkpoint. Treat them as new
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// pods.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodAdditions</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Pods</span>)
+		<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SET</span>:
+			<span style="color:#75715e">// TODO: Do we want to support this?
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Kubelet does not support snapshot update&#34;</span>)
+		}
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Op</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">RESTORE</span> {
+			<span style="color:#75715e">// If the update type is RESTORE, it means that the update is from
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// the pod checkpoints and may be incomplete. Do not mark the
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// source as ready.
+</span><span style="color:#75715e"></span>
+			<span style="color:#75715e">// Mark the source ready after receiving at least one update from the
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// source. Once all the sources are marked ready, various cleanup
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// routines will start reclaiming resources. It is important that this
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// takes place only after kubelet calls the update handler to process
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// the update to ensure the internal pod cache is up-to-date.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">sourcesReady</span>.<span style="color:#a6e22e">AddSource</span>(<span style="color:#a6e22e">u</span>.<span style="color:#a6e22e">Source</span>)
+		}
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">e</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">plegCh</span>:
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">isSyncPodWorthy</span>(<span style="color:#a6e22e">e</span>) {
+			<span style="color:#75715e">// PLEG event for a pod; sync it.
+</span><span style="color:#75715e"></span>			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">GetPodByUID</span>(<span style="color:#a6e22e">e</span>.<span style="color:#a6e22e">ID</span>); <span style="color:#a6e22e">ok</span> {
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (PLEG): %q, event: %#v&#34;</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pod</span>(<span style="color:#a6e22e">pod</span>), <span style="color:#a6e22e">e</span>)
+				<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodSyncs</span>([]<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>{<span style="color:#a6e22e">pod</span>})
+			} <span style="color:#66d9ef">else</span> {
+				<span style="color:#75715e">// If the pod no longer exists, ignore the event.
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (PLEG): ignore irrelevant event: %#v&#34;</span>, <span style="color:#a6e22e">e</span>)
+			}
+		}
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">e</span>.<span style="color:#a6e22e">Type</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pleg</span>.<span style="color:#a6e22e">ContainerDied</span> {
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">containerID</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">e</span>.<span style="color:#a6e22e">Data</span>.(<span style="color:#66d9ef">string</span>); <span style="color:#a6e22e">ok</span> {
+				<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">cleanUpContainersInPod</span>(<span style="color:#a6e22e">e</span>.<span style="color:#a6e22e">ID</span>, <span style="color:#a6e22e">containerID</span>)
+			}
+		}
+	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">syncCh</span>:
+		<span style="color:#75715e">// Sync pods waiting for sync
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">podsToSync</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">getPodsToSync</span>()
+		<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">podsToSync</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+			<span style="color:#66d9ef">break</span>
+		}
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (SYNC): %d pods; %s&#34;</span>, len(<span style="color:#a6e22e">podsToSync</span>), <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pods</span>(<span style="color:#a6e22e">podsToSync</span>))
+		<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodSyncs</span>(<span style="color:#a6e22e">podsToSync</span>)
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">update</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">livenessManager</span>.<span style="color:#a6e22e">Updates</span>():
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">update</span>.<span style="color:#a6e22e">Result</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">proberesults</span>.<span style="color:#a6e22e">Failure</span> {
+			<span style="color:#75715e">// The liveness manager detected a failure; sync the pod.
+</span><span style="color:#75715e"></span>
+			<span style="color:#75715e">// We should not use the pod from livenessManager, because it is never updated after
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// initialization.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">GetPodByUID</span>(<span style="color:#a6e22e">update</span>.<span style="color:#a6e22e">PodUID</span>)
+			<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> {
+				<span style="color:#75715e">// If the pod no longer exists, ignore the update.
+</span><span style="color:#75715e"></span>				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (container unhealthy): ignore irrelevant update: %#v&#34;</span>, <span style="color:#a6e22e">update</span>)
+				<span style="color:#66d9ef">break</span>
+			}
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">1</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (container unhealthy): %q&#34;</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pod</span>(<span style="color:#a6e22e">pod</span>))
+			<span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodSyncs</span>([]<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>{<span style="color:#a6e22e">pod</span>})
+		}
+	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">housekeepingCh</span>:
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">sourcesReady</span>.<span style="color:#a6e22e">AllReady</span>() {
+			<span style="color:#75715e">// If the sources aren&#39;t ready or volume manager has not yet synced the states,
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// skip housekeeping, as we may accidentally delete pods from unready sources.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (housekeeping, skipped): sources aren&#39;t ready yet.&#34;</span>)
+		} <span style="color:#66d9ef">else</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">4</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;SyncLoop (housekeeping)&#34;</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">handler</span>.<span style="color:#a6e22e">HandlePodCleanups</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Failed cleaning pods: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+			}
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+}
+</code></pre></div><p>可以看到它从如下管道中获取信息：</p>
+<p>configCh：读取配置事件的管道，就是之前讲过的通过文件、URL 或 apiserver 得到对pod资源做出修改的事件</p>
+<p>syncCh：定时器管道，每次隔一段事件去同步最新保存的 pod 状态</p>
+<p>houseKeepingCh：housekeeping 事件的管道，做 pod 清理工作</p>
+<p>plegCh：PLEG 状态，如果 pod 的状态发生改变（因为某些情况被杀死，被暂停等），kubelet 也要做处理</p>
+<p>livenessManager.Updates()：健康检查，发现某个 pod 不可用，一般也要对它进行重启</p>
+<p>需要注意的是， switch-case 语句从管道中读取数据的时候，不像一般情况下那样会从上到下按照顺序，只要任何管道中有数据，switch 就会选择执行对应的 case 语句。</p>
+<p>每个管道的处理思路大同小异，我们只分析用户通过 apiserver 添加新 pod 的情况，也就是 <code>handler.HandlePodAdditions(u.Pods)</code> 这句话的处理逻辑。</p>
+<h3 id="handlepodadditions">HandlePodAdditions</h3>
+<p>入参是一个pod结构体数组，对每一个pod执行如下操作：</p>
+<ul>
+<li>1.先把所有Pod按照时间顺序进行排序</li>
+<li>2.将所有pod加入到podManager中，对于不在podManager中的pod,如果podManager中找不到某个pod，则认为该pod被删除了</li>
+<li>3.判断是不是静态pod，如果是则进入静态pod 创建逻辑</li>
+<li>4.如果是普通pod,首先会检查该pod能否在当前节点上创建</li>
+<li>5.如果可以创建则使用<code>dispatchWork</code>将创建pod的任务异步下发给<code>podWorkers</code></li>
+<li>6.将pod加入到<code>probeManager</code>，启动readiness和liveness讲课检查</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/kubelet/kubelet.go:2040
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">HandlePodAdditions</span>(<span style="color:#a6e22e">pods</span> []<span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>) {
+	<span style="color:#a6e22e">start</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">clock</span>.<span style="color:#a6e22e">Now</span>()
+    <span style="color:#75715e">//把所有Pod按照时间顺序进行排序
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">sort</span>.<span style="color:#a6e22e">Sort</span>(<span style="color:#a6e22e">sliceutils</span>.<span style="color:#a6e22e">PodsByCreationTime</span>(<span style="color:#a6e22e">pods</span>))
+	
+    <span style="color:#75715e">//将所有pod加入到podManager中，对于不在podManager中的pod,如果podManager中找不到某个pod，则认为该pod被删除了
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">pod</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">pods</span> {
+		<span style="color:#a6e22e">existingPods</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">GetPods</span>()
+		<span style="color:#75715e">// Always add the pod to the pod manager. Kubelet relies on the pod
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// manager as the source of truth for the desired state. If a pod does
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// not exist in the pod manager, it means that it has been deleted in
+</span><span style="color:#75715e"></span>		<span style="color:#75715e">// the apiserver and no action (other than cleanup) is required.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">AddPod</span>(<span style="color:#a6e22e">pod</span>)
+
+        <span style="color:#75715e">//判断加入的pod是不是mirror pod，也就是static pod，俗称静态pod,
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//静态pod无法通过master来创建和删除，不与任何一种k8s controller资源关联，它只能通过kubelet来创建，
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//通过设置kubelet 中--pod-manifest-path参数来指定pod yaml文件的路径，kubelet定时扫描创建pod
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//静态pod的主要作用就是他不会被oom回收，系统组件可以使用静态pod的方式部署
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kubepod</span>.<span style="color:#a6e22e">IsMirrorPod</span>(<span style="color:#a6e22e">pod</span>) {
+			<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">handleMirrorPod</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">start</span>)
+			<span style="color:#66d9ef">continue</span>
+		}
+
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podIsTerminated</span>(<span style="color:#a6e22e">pod</span>) {
+		
+			<span style="color:#a6e22e">activePods</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">filterOutTerminatedPods</span>(<span style="color:#a6e22e">existingPods</span>)
+
+			<span style="color:#75715e">//校验该pod能否在当前节点上创建
+</span><span style="color:#75715e"></span>			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ok</span>, <span style="color:#a6e22e">reason</span>, <span style="color:#a6e22e">message</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">canAdmitPod</span>(<span style="color:#a6e22e">activePods</span>, <span style="color:#a6e22e">pod</span>); !<span style="color:#a6e22e">ok</span> {
+				<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">rejectPod</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">reason</span>, <span style="color:#a6e22e">message</span>)
+				<span style="color:#66d9ef">continue</span>
+			}
+		}
+		<span style="color:#a6e22e">mirrorPod</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podManager</span>.<span style="color:#a6e22e">GetMirrorPodByPod</span>(<span style="color:#a6e22e">pod</span>)
+    
+        <span style="color:#75715e">//任务分发，资源为pod，对资源做哪种操作kubetypes.SyncPodCreate
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">dispatchWork</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SyncPodCreate</span>, <span style="color:#a6e22e">mirrorPod</span>, <span style="color:#a6e22e">start</span>)
+        <span style="color:#75715e">//将pod加入probeManager，启动readiness和liveness健康检查
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">probeManager</span>.<span style="color:#a6e22e">AddPod</span>(<span style="color:#a6e22e">pod</span>)
+	}
+}
+</code></pre></div><h3 id="dispatchwork">dispatchWork</h3>
+<p>现在我们来分析当创建pod的任务下发后，<code>dispatchWork</code>里面做了什么</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">dispatchWork</span>(<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">syncType</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SyncPodType</span>, <span style="color:#a6e22e">mirrorPod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">start</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>) {
+	<span style="color:#75715e">//如果pod被标记为删除，则不做处理
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podIsTerminated</span>(<span style="color:#a6e22e">pod</span>) {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">DeletionTimestamp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">statusManager</span>.<span style="color:#a6e22e">TerminatePod</span>(<span style="color:#a6e22e">pod</span>)
+		}
+		<span style="color:#66d9ef">return</span>
+	}
+	
+    <span style="color:#75715e">//填充UpdatePodOptions，然后调用UpdatePod方法
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podWorkers</span>.<span style="color:#a6e22e">UpdatePod</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">UpdatePodOptions</span>{
+		<span style="color:#a6e22e">Pod</span>:        <span style="color:#a6e22e">pod</span>,
+		<span style="color:#a6e22e">MirrorPod</span>:  <span style="color:#a6e22e">mirrorPod</span>,
+		<span style="color:#a6e22e">UpdateType</span>: <span style="color:#a6e22e">syncType</span>,
+		<span style="color:#a6e22e">OnCompleteFunc</span>: <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>) {
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">PodWorkerDuration</span>.<span style="color:#a6e22e">WithLabelValues</span>(<span style="color:#a6e22e">syncType</span>.<span style="color:#a6e22e">String</span>()).<span style="color:#a6e22e">Observe</span>(<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">SinceInSeconds</span>(<span style="color:#a6e22e">start</span>))
+				<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">DeprecatedPodWorkerLatency</span>.<span style="color:#a6e22e">WithLabelValues</span>(<span style="color:#a6e22e">syncType</span>.<span style="color:#a6e22e">String</span>()).<span style="color:#a6e22e">Observe</span>(<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">SinceInMicroseconds</span>(<span style="color:#a6e22e">start</span>))
+			}
+		},
+	})
+	<span style="color:#75715e">// Note the number of containers for new pods.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">syncType</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SyncPodCreate</span> {
+		<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">ContainersPerPodCount</span>.<span style="color:#a6e22e">Observe</span>(float64(len(<span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">Spec</span>.<span style="color:#a6e22e">Containers</span>)))
+	}
+}
+</code></pre></div><p>进入<code>kl.podWorkers.UpdatePod</code>方法查看，我们发现UpdatePod中主要包含一个方法<code>managePodLoop</code>，在进入
+<code>managePodLoop</code>中我们发现<code>managePodLoop</code> 调用 <code>syncPodFn</code> 方法去同步 pod，syncPodFn 实际上就是 <code>kubelet.SyncPod</code>，
+我们直接进入<code>kubelet.SyncPod</code>中看创建pod的具体流程：</p>
+<ul>
+<li>
+<ol>
+<li>对syncPod中传入参数进行判断，如果是删除Pod,则直接删除</li>
+</ol>
+</li>
+<li>
+<ol start="2">
+<li>同步 podStatus 到 kubelet.statusManager</li>
+</ol>
+</li>
+<li>
+<ol start="3">
+<li>判断网络插件是否ready，如果没有ready，则只能以hostnetwork的方式启动pod</li>
+</ol>
+</li>
+<li>
+<ol start="4">
+<li>检测是否为pod启用了cgroups-per-qos，如果是则更新pod的cgroup</li>
+</ol>
+</li>
+<li>
+<ol start="5">
+<li>为pod创建数据目录</li>
+</ol>
+</li>
+<li>
+<ol start="6">
+<li>将pod中声明的volume进行挂载</li>
+</ol>
+</li>
+<li>
+<ol start="7">
+<li>获取pod依赖的所有secret</li>
+</ol>
+</li>
+<li>
+<ol start="8">
+<li>调用containerruntime 开始创建容器</li>
+</ol>
+</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">pkg</span><span style="color:#f92672">/</span><span style="color:#a6e22e">kubelet</span><span style="color:#f92672">/</span><span style="color:#a6e22e">kubelet</span>.<span style="color:#66d9ef">go</span>:<span style="color:#ae81ff">1481</span>
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">kl</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Kubelet</span>) <span style="color:#a6e22e">syncPod</span>(<span style="color:#a6e22e">o</span> <span style="color:#a6e22e">syncPodOptions</span>) <span style="color:#66d9ef">error</span> {
+	<span style="color:#75715e">// pull out the required options
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">pod</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">pod</span>
+	<span style="color:#a6e22e">mirrorPod</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">mirrorPod</span>
+	<span style="color:#a6e22e">podStatus</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">podStatus</span>
+	<span style="color:#a6e22e">updateType</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">updateType</span>
+
+	<span style="color:#75715e">//对pod的操作是删除pod，则删除pod
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">updateType</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SyncPodKill</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">killPod</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">podStatus</span>, <span style="color:#a6e22e">killPodOptions</span>.<span style="color:#a6e22e">PodTerminationGracePeriodSecondsOverride</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleError</span>(<span style="color:#a6e22e">err</span>)
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+	
+    <span style="color:#75715e">//对pod的操作是创建pod，记录kubelet第一次发现该pod的时间
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">updateType</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">kubetypes</span>.<span style="color:#a6e22e">SyncPodCreate</span> {
+		<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">firstSeenTime</span>.<span style="color:#a6e22e">IsZero</span>() {
+			<span style="color:#75715e">// This is the first time we are syncing the pod. Record the latency
+</span><span style="color:#75715e"></span>			<span style="color:#75715e">// since kubelet first saw the pod if firstSeenTime is set.
+</span><span style="color:#75715e"></span>			<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">PodWorkerStartDuration</span>.<span style="color:#a6e22e">Observe</span>(<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">SinceInSeconds</span>(<span style="color:#a6e22e">firstSeenTime</span>))
+			<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">DeprecatedPodWorkerStartLatency</span>.<span style="color:#a6e22e">Observe</span>(<span style="color:#a6e22e">metrics</span>.<span style="color:#a6e22e">SinceInMicroseconds</span>(<span style="color:#a6e22e">firstSeenTime</span>))
+		} <span style="color:#66d9ef">else</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">3</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;First seen time not recorded for pod %q&#34;</span>, <span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">UID</span>)
+		}
+	}
+
+    <span style="color:#75715e">//将podStatus同步到kubelet status manager
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">apiPodStatus</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">generateAPIPodStatus</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">podStatus</span>)
+	
+
+	<span style="color:#75715e">// 判断网络插件是否ready，如果没有ready，则只能以hostnetwork的方式启动pod
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">runtimeState</span>.<span style="color:#a6e22e">networkErrors</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> !<span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">IsHostNetworkPod</span>(<span style="color:#a6e22e">pod</span>) {
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">recorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#a6e22e">events</span>.<span style="color:#a6e22e">NetworkNotReady</span>, <span style="color:#e6db74">&#34;%s: %v&#34;</span>, <span style="color:#a6e22e">NetworkNotReadyErrorMsg</span>, <span style="color:#a6e22e">err</span>)
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;%s: %v&#34;</span>, <span style="color:#a6e22e">NetworkNotReadyErrorMsg</span>, <span style="color:#a6e22e">err</span>)
+	}
+
+	<span style="color:#75715e">//为pod设置cgroup 如果pod启用了cgroups-per-qos
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">pcm</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">containerManager</span>.<span style="color:#a6e22e">NewPodContainerManager</span>()
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">containerManager</span>.<span style="color:#a6e22e">UpdateQOSCgroups</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+        <span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Infof</span>(<span style="color:#e6db74">&#34;Failed to update QoS cgroups while syncing pod: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+    }
+
+	<span style="color:#75715e">// 为pod创建数据目录
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">makePodDataDirs</span>(<span style="color:#a6e22e">pod</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">recorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#a6e22e">events</span>.<span style="color:#a6e22e">FailedToMakePodDataDirectories</span>, <span style="color:#e6db74">&#34;error making pod data directories: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Unable to make pod data directories for pod %q: %v&#34;</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pod</span>(<span style="color:#a6e22e">pod</span>), <span style="color:#a6e22e">err</span>)
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#75715e">// 将pod中声明的volume进行挂载
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">podIsTerminated</span>(<span style="color:#a6e22e">pod</span>) {
+		<span style="color:#75715e">// Wait for volumes to attach/mount
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">volumeManager</span>.<span style="color:#a6e22e">WaitForAttachAndMount</span>(<span style="color:#a6e22e">pod</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">recorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#a6e22e">events</span>.<span style="color:#a6e22e">FailedMountVolume</span>, <span style="color:#e6db74">&#34;Unable to attach or mount volumes: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;Unable to attach or mount volumes for pod %q: %v; skipping pod&#34;</span>, <span style="color:#a6e22e">format</span>.<span style="color:#a6e22e">Pod</span>(<span style="color:#a6e22e">pod</span>), <span style="color:#a6e22e">err</span>)
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+	}
+
+	<span style="color:#75715e">// 获取pod依赖的所有secret
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">pullSecrets</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">getPullSecretsForPod</span>(<span style="color:#a6e22e">pod</span>)
+
+	<span style="color:#75715e">// 调用containerruntime 开始创建容器
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">result</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">containerRuntime</span>.<span style="color:#a6e22e">SyncPod</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">podStatus</span>, <span style="color:#a6e22e">pullSecrets</span>, <span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">backOff</span>)
+	<span style="color:#a6e22e">kl</span>.<span style="color:#a6e22e">reasonCache</span>.<span style="color:#a6e22e">Update</span>(<span style="color:#a6e22e">pod</span>.<span style="color:#a6e22e">UID</span>, <span style="color:#a6e22e">result</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">result</span>.<span style="color:#a6e22e">Error</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#75715e">// Do not return error if the only failures were pods in backoff
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">r</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">result</span>.<span style="color:#a6e22e">SyncResults</span> {
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">r</span>.<span style="color:#a6e22e">Error</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">ErrCrashLoopBackOff</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">r</span>.<span style="color:#a6e22e">Error</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">images</span>.<span style="color:#a6e22e">ErrImagePullBackOff</span> {
+				<span style="color:#75715e">// Do not record an event here, as we keep all event logging for sync pod failures
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// local to container runtime so we get better errors
+</span><span style="color:#75715e"></span>				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+			}
+		}
+
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+	}
+
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><h3 id="heading-1">创建容器逻辑</h3>
+<p>上面一小节创建了pod所必须的所有内容，但是最核心还是pod中的容器的创建，我们来分析一下，进入<code>kl.containerRuntime.SyncPod</code>,
+核心逻辑如下：</p>
+<ul>
+<li>
+<ol>
+<li>创建 PodSandbox 容器</li>
+</ol>
+</li>
+<li>
+<ol start="2">
+<li>启动 initContainer 容器</li>
+</ol>
+</li>
+<li>
+<ol start="3">
+<li>启动业务容器</li>
+</ol>
+</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//pkg/kubelet/kuberuntime/kuberuntime_manager.go:631
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">m</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubeGenericRuntimeManager</span>) <span style="color:#a6e22e">SyncPod</span>(<span style="color:#a6e22e">pod</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Pod</span>, <span style="color:#a6e22e">_</span> <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">PodStatus</span>, <span style="color:#a6e22e">podStatus</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">PodStatus</span>, <span style="color:#a6e22e">pullSecrets</span> []<span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">Secret</span>, <span style="color:#a6e22e">backOff</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">flowcontrol</span>.<span style="color:#a6e22e">Backoff</span>) (<span style="color:#a6e22e">result</span> <span style="color:#a6e22e">kubecontainer</span>.<span style="color:#a6e22e">PodSyncResult</span>) {
+	<span style="color:#f92672">...</span>
+	<span style="color:#75715e">// 1. 创建 PodSandbox 容器
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">podSandboxID</span>, <span style="color:#a6e22e">msg</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">createPodSandbox</span>(<span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">podContainerChanges</span>.<span style="color:#a6e22e">Attempt</span>)
+	<span style="color:#f92672">...</span>
+	
+	<span style="color:#75715e">// 2. 启动 initContainer 容器
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">msg</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">startContainer</span>(<span style="color:#a6e22e">podSandboxID</span>, <span style="color:#a6e22e">podSandboxConfig</span>, <span style="color:#a6e22e">container</span>, <span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">podStatus</span>, <span style="color:#a6e22e">pullSecrets</span>, <span style="color:#a6e22e">podIP</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+	<span style="color:#f92672">...</span>		
+	<span style="color:#75715e">// 3. 启动业务容器
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">idx</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">podContainerChanges</span>.<span style="color:#a6e22e">ContainersToStart</span> {
+	<span style="color:#f92672">...</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">msg</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">startContainer</span>(<span style="color:#a6e22e">podSandboxID</span>, <span style="color:#a6e22e">podSandboxConfig</span>, <span style="color:#a6e22e">container</span>, <span style="color:#a6e22e">pod</span>, <span style="color:#a6e22e">podStatus</span>, <span style="color:#a6e22e">pullSecrets</span>, <span style="color:#a6e22e">podIP</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+	<span style="color:#f92672">...</span>
+}
+</code></pre></div><p>至此一个pod被完整的启动起来</p>
+<h3 id="heading-2">总结</h3>
+<p>主要总结下kubelet创建pod的核心流程：</p>
+<ul>
+<li>
+<ol>
+<li>对syncPod中传入参数进行判断，如果是删除Pod,则直接删除</li>
+</ol>
+</li>
+<li>
+<ol start="2">
+<li>同步 podStatus 到 kubelet.statusManager</li>
+</ol>
+</li>
+<li>
+<ol start="3">
+<li>判断网络插件是否ready，如果没有ready，则只能以hostnetwork的方式启动pod</li>
+</ol>
+</li>
+<li>
+<ol start="4">
+<li>检测是否为pod启用了cgroups-per-qos，如果是则更新pod的cgroup</li>
+</ol>
+</li>
+<li>
+<ol start="5">
+<li>为pod创建数据目录</li>
+</ol>
+</li>
+<li>
+<ol start="6">
+<li>将pod中声明的volume进行挂载</li>
+</ol>
+</li>
+<li>
+<ol start="7">
+<li>获取pod依赖的所有secret</li>
+</ol>
+</li>
+<li>
+<ol start="8">
+<li>调用containerruntime 开始创建容器</li>
+</ol>
+<ul>
+<li>8.1. 创建 PodSandbox 容器</li>
+<li>8.2. 启动 initContainer 容器</li>
+<li>8.3. 启动业务容器</li>
+</ul>
+</li>
+</ul>
+<h3 id="heading-3">参考</h3>
+<p><a href="https://cizixs.com/2017/06/07/kubelet-source-code-analysis-part-2/">https://cizixs.com/2017/06/07/kubelet-source-code-analysis-part-2/</a></p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/kube-scheduler-priority-source-read/" data-toggle="tooltip" data-placement="top" title="Kube Scheduler 优选策略源码分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>

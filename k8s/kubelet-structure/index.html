@@ -68,6 +68,7 @@
         <li><a href="#kubelet-">kubelet 架构图</a></li>
         <li><a href="#heading-2">源码分析入口</a></li>
         <li><a href="#heading-3">总结</a></li>
+        <li><a href="#kubelet-pod">kubelet 启动pod</a></li>
         <li><a href="#heading-4">参考</a></li>
       </ul>
     </li>
@@ -1177,13 +1178,16 @@ pod创建的核心逻辑。</p>
                                                   |                           |
                                 |--&gt; RunKubelet --|                           |--&gt; StartGarbageCollection
                                 |                 |
-                                |                 |--&gt; startKubelet --&gt; k.Run(我们现在在这里)
-                                |
+                                |                 |--&gt; startKubelet -- | --&gt; k.Run
+                                |                                      | --&gt; k.ListenAndServe
+                                |                                      | --&gt; k.ListenAndServeReadOnly
 </code></pre>
 <p>NewKubeletCommand &ndash;&gt; Run &ndash;&gt; run &ndash;|&ndash;&gt; http.ListenAndServe
 |
 |&ndash;&gt; daemon.SdNotify</p>
+<p>kubelet启动总结来说就是，最上面kubelet架构图当中各个模块的启动，例如<code>k.Run</code>中包括 pleg, gc模块，各种manager模块的启动，<code>k.ListenAndServe</code>，<code>k.ListenAndServeReadOnly</code>等则是启动kubelet http service</p>
 <p>接下来我会重点分析kubelet中几个核心模块，如：kublete创建pod流程，kubelet如何与api server交互，kubelet垃圾回收机制</p>
+<h3 id="kubelet-pod">kubelet 启动pod</h3>
 <h3 id="heading-4">参考</h3>
 <p><a href="https://k8smeetup.github.io/docs/admin/kubelet/">https://k8smeetup.github.io/docs/admin/kubelet/</a></p>
 

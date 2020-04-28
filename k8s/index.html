@@ -45,6 +45,28 @@
   <div class="main" role="main">
     <section class="list section-list">
       <article class="article">
+        <a href="/k8s/kubelet-create-pod-lifecycle/" class="article-titles">
+          <h2 class="article-title">Kubelet 创建pod流程分析</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>April 28, 2020</time></li>
+          <li class="article-meta-categories">
+            <a href="/categories/k8s/">
+              <i class="fas fa-folder"></i>
+              k8s
+            </a>&nbsp;
+          </li>
+        </ul>
+        <div class="article-content">
+          前言 上一节我们分析了kubelet启动的基本流程，这一节我们分析一下当有新的pod分配到当前节点时，kubelet如何创建一个pod
+syncLoop 上一节最后我们分析到kl.syncLoop(updates, kl)，是kubelet里面一个主循环逻辑，看一下它的具体实现： 它从不同的管道（文件、URL 和 apiserver）监听变化，并把它们汇聚起来。 当有新的变化发生时，它会调用对应的处理函数，保证 pod 处于期望的状态。 如果 pod 没有变化，它也会定期保证所有的容器和最新的期望状态保持一致。这个方法是 for 循环，不会退出。
+func (kl *Kubelet) syncLoop(updates &lt;-chan kubetypes.PodUpdate, handler SyncHandler) { klog.Info(&#34;Starting kubelet main sync loop.&#34;) syncTicker := time.NewTicker(time.Second) defer syncTicker.Stop() housekeepingTicker := time.NewTicker(housekeepingPeriod) defer housekeepingTicker.Stop() plegCh := kl.pleg.Watch() const ( base = 100 * time.Millisecond max = 5 * time.Second factor = 2 ) duration := base for { if err := kl.runtimeState.runtimeErrors(); err != nil { klog.Infof(&#34;skipping pod synchronization - %v&#34;, err) // exponential backoff 	time.Sleep(duration) duration = time.Duration(math.Min(float64(max), factor*float64(duration))) continue } // reset backoff if we have a success 	duration = base kl.
+        </div>
+        <div class="article-readmore"><a href="/k8s/kubelet-create-pod-lifecycle/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/kube-scheduler-priority-source-read/" class="article-titles">
           <h2 class="article-title">Kube Scheduler 优选策略源码分析</h2>
           

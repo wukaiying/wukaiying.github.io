@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Fri, 24 Apr 2020 15:32:13 +0800</lastBuildDate>
+    <lastBuildDate>Tue, 28 Apr 2020 10:38:28 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/categories/index.xml" rel="self" type="application/rss+xml" />
     
@@ -15,7 +15,7 @@
     <item>
       <title>k8s</title>
       <link>https://wukaiying.github.io/categories/k8s/</link>
-      <pubDate>Fri, 24 Apr 2020 15:32:13 +0800</pubDate>
+      <pubDate>Tue, 28 Apr 2020 10:38:28 +0800</pubDate>
       
       <guid>https://wukaiying.github.io/categories/k8s/</guid>
       <description></description>

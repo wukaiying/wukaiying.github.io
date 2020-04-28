@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Fri, 24 Apr 2020 15:32:13 +0800</lastBuildDate>
+    <lastBuildDate>Tue, 28 Apr 2020 10:38:28 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/index.xml" rel="self" type="application/rss+xml" />
     
@@ -25,6 +25,17 @@ go-plugin 项目地址https://github.com/hashicorp/go-plugin
 Put(key string, value []byte) error Get(key string) ([]byte, error) ([]byte, error) 新建项目 这里我先将完整项目目录结构列出来
 . ├── Makefile ├── cmd │ ├── cmd │ ├── kv_wky │ └── main.go ├── pkg │ ├── plugins │ │ └── proto │ │ ├── plugin.pb.go │ │ └── plugin.proto │ └── shared │ ├── grpc.go │ └── plugin.go └── pluginclient ├── main.go └── pluginclient 定义proto 新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go
 syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key = 1;}message GetResponse { bytes value = 1;}message PutRequest { string key = 1; bytes value = 2;}message Empty {}service KV { rpc Get(GetRequest) returns (GetResponse); rpc Put(PutRequest) returns (Empty);} 定义对外暴露的插件接口 新建pkg/shared/plugin.</description>
+    </item>
+    
+    <item>
+      <title>Kubelet 创建pod流程分析</title>
+      <link>https://wukaiying.github.io/k8s/kubelet-create-pod-lifecycle/</link>
+      <pubDate>Tue, 28 Apr 2020 10:38:28 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/kubelet-create-pod-lifecycle/</guid>
+      <description>前言 上一节我们分析了kubelet启动的基本流程，这一节我们分析一下当有新的pod分配到当前节点时，kubelet如何创建一个pod
+syncLoop 上一节最后我们分析到kl.syncLoop(updates, kl)，是kubelet里面一个主循环逻辑，看一下它的具体实现： 它从不同的管道（文件、URL 和 apiserver）监听变化，并把它们汇聚起来。 当有新的变化发生时，它会调用对应的处理函数，保证 pod 处于期望的状态。 如果 pod 没有变化，它也会定期保证所有的容器和最新的期望状态保持一致。这个方法是 for 循环，不会退出。
+func (kl *Kubelet) syncLoop(updates &amp;lt;-chan kubetypes.PodUpdate, handler SyncHandler) { klog.Info(&amp;#34;Starting kubelet main sync loop.&amp;#34;) syncTicker := time.NewTicker(time.Second) defer syncTicker.Stop() housekeepingTicker := time.NewTicker(housekeepingPeriod) defer housekeepingTicker.Stop() plegCh := kl.pleg.Watch() const ( base = 100 * time.Millisecond max = 5 * time.Second factor = 2 ) duration := base for { if err := kl.runtimeState.runtimeErrors(); err != nil { klog.Infof(&amp;#34;skipping pod synchronization - %v&amp;#34;, err) // exponential backoff 	time.Sleep(duration) duration = time.Duration(math.Min(float64(max), factor*float64(duration))) continue } // reset backoff if we have a success 	duration = base kl.</description>
     </item>
     
     <item>
