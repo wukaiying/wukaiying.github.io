@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>K8S Proxy 源码分析 - Kaiying</title>
+  <meta property="og:title" content="K8S Proxy 源码分析 - Kaiying" />
+  <meta name="twitter:title" content="K8S Proxy 源码分析 - Kaiying" />
+  <meta name="description" content="K8S Proxy 源码分析">
+  <meta property="og:description" content="K8S Proxy 源码分析">
+  <meta name="twitter:description" content="K8S Proxy 源码分析">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/kube-proxy-source-code-read/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">K8S Proxy 源码分析</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>April 29, 2020</time></li>
+        <li class="article-meta-categories">
+          <a href="/categories/k8s/">
+            <i class="fas fa-folder"></i>
+            k8s
+          </a>&nbsp;
+        </li>
+      </ul>
+      
+<aside class="toc">
+  <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#heading">前言</a></li>
+        <li><a href="#service-">service 工作原理</a></li>
+        <li><a href="#service--1">service 暴露服务方式</a></li>
+        <li><a href="#kube-proxy-">kube-proxy 模式</a></li>
+        <li><a href="#kube-proxy--1">kube-proxy 源码分析入口</a></li>
+        <li><a href="#heading-1">参考</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+</aside>
+      <h3 id="heading">前言</h3>
+<p>在分析kube-proxy之前，我们需要先知道k8s中另外一个概念service。</p>
+<p>service 是一组具有相同 label pod 集合的抽象，集群内外的各个服务可以通过 service 进行互相访问。</p>
+<p>当创建一个 service 对象时也会对应创建一个 endpoint 对象，endpoint 存放的是pod服务的ip地址，service 只是将多个pod进行关联起来。</p>
+<p>当用户通过service访问后端pod服务时，实际的路由转发都是由 kubernetes 中的 kube-proxy 组件来实现，因此，service 必须结合 kube-proxy 使用。</p>
+<p>kube-proxy 组件可以运行在 kubernetes 集群中的每一个节点上也可以只运行在单独的几个节点上，其会根据 service 和 endpoints 的变动来刷新节点上 iptables 或者 ipvs 中保存的路由规则。</p>
+<h3 id="service-">service 工作原理</h3>
+<p><img src="https://pic.images.ac.cn/image/5ea8e8fb046e9.html" alt="service 工作原理"></p>
+<p>endpoint controller 负责监听 service 和对应 pod 的变化，更新对应 service 的 endpoints 对象。当用户创建 service 后 endpoints controller 会监听 pod 的状态，当 pod 处于 running 且准备就绪时，endpoints controller 会将 pod ip 记录到 endpoints 对象中。
+kube-proxy 会监听 service 和 endpoints 的变化并调用其代理模块在主机上刷新路由规则。</p>
+<p>总结就是，endpoint controller负责更新service ip和其对应后端服务endpoint ip的关系。而kube-proxy则负责更新各个节点的iptables或者ipvs使得流量能够被正常转发。</p>
+<h3 id="service--1">service 暴露服务方式</h3>
+<h4 id="clusterip">ClusterIp</h4>
+<p>ClusterIP 类型的 service 是 kubernetes 集群默认的服务暴露方式，它只能用于集群内部通信，可以被各 pod 访问，其访问方式为：</p>
+<pre><code>pod ---&gt; ClusterIP:ServicePort --&gt; (iptables)DNAT --&gt; PodIP:containePort
+</code></pre><h4 id="nodeport">NodePort</h4>
+<pre><code>client ---&gt; NodeIP:NodePort ---&gt; ClusterIP:ServicePort ---&gt; (iptables)DNAT ---&gt; PodIP:containePort
+</code></pre><h4 id="loadbalancer">LoadBalancer</h4>
+<h4 id="ingress">Ingress</h4>
+<h3 id="kube-proxy-">kube-proxy 模式</h3>
+<p>kube-proxy 的路由转发规则是通过其后端的代理模块实现的，kube-proxy 的代理模块目前有四种实现方案，userspace、iptables、ipvs、kernelspace，其发展历程如下所示：</p>
+<ul>
+<li>kubernetes v1.0：services 仅是一个“4层”代理，代理模块只有 userspace</li>
+<li>kubernetes v1.1：Ingress API 出现，其代理“7层”服务，并且增加了 iptables 代理模块</li>
+<li>kubernetes v1.2：iptables 成为默认代理模式</li>
+<li>kubernetes v1.8：引入 ipvs 代理模块</li>
+<li>kubernetes v1.9：ipvs 代理模块成为 beta 版本</li>
+<li>kubernetes v1.11：ipvs 代理模式 GA</li>
+</ul>
+<h4 id="userspace-">userspace 模式</h4>
+<h4 id="iptables-">iptables 模式</h4>
+<h4 id="ipvs-">ipvs 模式</h4>
+<h4 id="kernelspace-">kernelspace 模式</h4>
+<p>windowns下使用</p>
+<h3 id="kube-proxy--1">kube-proxy 源码分析入口</h3>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kube-proxy/proxy.go:33
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+	<span style="color:#a6e22e">command</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">app</span>.<span style="color:#a6e22e">NewProxyCommand</span>()
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">command</span>.<span style="color:#a6e22e">Execute</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#ae81ff">1</span>)
+	}
+}
+
+<span style="color:#75715e">//cmd/kube-proxy/app/server.go:415
+</span><span style="color:#75715e"></span><span style="color:#75715e">// NewProxyCommand creates a *cobra.Command object with default parameters
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">NewProxyCommand</span>() <span style="color:#f92672">*</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span> {
+	<span style="color:#a6e22e">opts</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">NewOptions</span>()
+	<span style="color:#a6e22e">cmd</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span>{
+		<span style="color:#a6e22e">Use</span>: <span style="color:#e6db74">&#34;kube-proxy&#34;</span>,
+		<span style="color:#a6e22e">Run</span>: <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">cmd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">cobra</span>.<span style="color:#a6e22e">Command</span>, <span style="color:#a6e22e">args</span> []<span style="color:#66d9ef">string</span>) {
+			<span style="color:#f92672">...</span>
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">opts</span>.<span style="color:#a6e22e">Run</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Exit</span>(<span style="color:#a6e22e">err</span>)
+			}
+		},
+	}
+
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>
+	<span style="color:#a6e22e">opts</span>.<span style="color:#a6e22e">config</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">opts</span>.<span style="color:#a6e22e">ApplyDefaults</span>(<span style="color:#a6e22e">opts</span>.<span style="color:#a6e22e">config</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;unable to create flag defaults: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">cmd</span>
+}
+</code></pre></div><p>下面进入kube-proxy真正启动逻辑<code>opts.Run()</code></p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kube-proxy/app/server.go:290
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Run runs the specified ProxyServer.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">o</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Options</span>) <span style="color:#a6e22e">Run</span>() <span style="color:#66d9ef">error</span> {
+	<span style="color:#66d9ef">defer</span> close(<span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">errCh</span>)
+	<span style="color:#75715e">//如果指定了 --write-config-to 参数,则将参数写入到指定的配置文件中
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">WriteConfigTo</span>) &gt; <span style="color:#ae81ff">0</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">writeConfigFile</span>()
+	}
+
+    <span style="color:#75715e">//新建Proxyserver
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">proxyServer</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">NewProxyServer</span>(<span style="color:#a6e22e">o</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+    
+    <span style="color:#75715e">//如果在启动参数中指定了--cleanup=true，则清空ipvs，iptables里面的规则
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">CleanupAndExit</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">proxyServer</span>.<span style="color:#a6e22e">CleanupAndExit</span>()
+	}
+
+	<span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">proxyServer</span> = <span style="color:#a6e22e">proxyServer</span>
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">runLoop</span>()
+}
+</code></pre></div><p>主要逻辑很简单，就是新建ProxyServer，然后启动runLoop进行无限循环，接下来我们看下<code>NewProxyServer</code>都创建了些啥</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kube-proxy/app/server_others.go:62
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">newProxyServer</span>(
+	<span style="color:#a6e22e">config</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proxyconfigapi</span>.<span style="color:#a6e22e">KubeProxyConfiguration</span>,
+	<span style="color:#a6e22e">cleanupAndExit</span> <span style="color:#66d9ef">bool</span>,
+	<span style="color:#a6e22e">master</span> <span style="color:#66d9ef">string</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">ProxyServer</span>, <span style="color:#66d9ef">error</span>) {
+
+	<span style="color:#75715e">//定义将要使用的工具包，iptables, ipvs, kernel, ipset, dbus
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">iptInterface</span> <span style="color:#a6e22e">utiliptables</span>.<span style="color:#a6e22e">Interface</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">ipvsInterface</span> <span style="color:#a6e22e">utilipvs</span>.<span style="color:#a6e22e">Interface</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">kernelHandler</span> <span style="color:#a6e22e">ipvs</span>.<span style="color:#a6e22e">KernelHandler</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">ipsetInterface</span> <span style="color:#a6e22e">utilipset</span>.<span style="color:#a6e22e">Interface</span>
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">dbus</span> <span style="color:#a6e22e">utildbus</span>.<span style="color:#a6e22e">Interface</span>
+
+	<span style="color:#75715e">// 初始化linux命令行工具
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">execer</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">exec</span>.<span style="color:#a6e22e">New</span>()
+    
+    <span style="color:#75715e">//工具包初始化，dbus,iptables, ipvs, kernel, ipset
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">dbus</span> = <span style="color:#a6e22e">utildbus</span>.<span style="color:#a6e22e">New</span>()
+	<span style="color:#a6e22e">iptInterface</span> = <span style="color:#a6e22e">utiliptables</span>.<span style="color:#a6e22e">New</span>(<span style="color:#a6e22e">execer</span>, <span style="color:#a6e22e">dbus</span>, <span style="color:#a6e22e">protocol</span>)
+	<span style="color:#a6e22e">kernelHandler</span> = <span style="color:#a6e22e">ipvs</span>.<span style="color:#a6e22e">NewLinuxKernelHandler</span>()
+	<span style="color:#a6e22e">ipsetInterface</span> = <span style="color:#a6e22e">utilipset</span>.<span style="color:#a6e22e">New</span>(<span style="color:#a6e22e">execer</span>)
+    <span style="color:#75715e">//检测节点是否支持ipvs模式
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">canUseIPVS</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ipvs</span>.<span style="color:#a6e22e">CanUseIPVSProxier</span>(<span style="color:#a6e22e">kernelHandler</span>, <span style="color:#a6e22e">ipsetInterface</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">canUseIPVS</span> {
+		<span style="color:#a6e22e">ipvsInterface</span> = <span style="color:#a6e22e">utilipvs</span>.<span style="color:#a6e22e">New</span>(<span style="color:#a6e22e">execer</span>)
+	}
+	
+
+	<span style="color:#a6e22e">client</span>, <span style="color:#a6e22e">eventClient</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">createClients</span>(<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">ClientConnection</span>, <span style="color:#a6e22e">master</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">proxier</span> <span style="color:#a6e22e">proxy</span>.<span style="color:#a6e22e">Provider</span>
+
+    <span style="color:#75715e">//获取kube-proxy mode，
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">proxyMode</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getProxyMode</span>(string(<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">Mode</span>), <span style="color:#a6e22e">kernelHandler</span>, <span style="color:#a6e22e">ipsetInterface</span>, <span style="color:#a6e22e">iptables</span>.<span style="color:#a6e22e">LinuxKernelCompatTester</span>{})
+    <span style="color:#f92672">...</span>
+    <span style="color:#75715e">//如果kube-proxy mode是iptables模式
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">proxyMode</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">proxyModeIPTables</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">0</span>).<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Using iptables Proxier.&#34;</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">IPTables</span>.<span style="color:#a6e22e">MasqueradeBit</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#75715e">// MasqueradeBit must be specified or defaulted.
+</span><span style="color:#75715e"></span>			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unable to read IPTables MasqueradeBit from config&#34;</span>)
+		}
+
+		<span style="color:#75715e">//新建iptables 模式的proxier
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">proxier</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">iptables</span>.<span style="color:#a6e22e">NewProxier</span>(
+			<span style="color:#f92672">...</span>
+		)
+		<span style="color:#75715e">//如果proxy mode是ipvs类型
+</span><span style="color:#75715e"></span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">proxyMode</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">proxyModeIPVS</span> {
+		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">0</span>).<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Using ipvs Proxier.&#34;</span>)
+        <span style="color:#75715e">//判断是否启用了ipv6 双栈模式，双栈技术所谓双栈(Dual IP Stack) ,就是在一复个系统(如一台主机或一台路由器) 中同时使制用百IPv6/ IPv4 两个可以并行工作的协议栈
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//并且ipv4和ipv6可以相互转换
+</span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">IPv6DualStack</span>) {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">0</span>).<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;creating dualStackProxier for ipvs.&#34;</span>)
+			
+			<span style="color:#a6e22e">proxier</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">ipvs</span>.<span style="color:#a6e22e">NewDualStackProxier</span>(
+				<span style="color:#f92672">...</span>
+			)
+		} <span style="color:#66d9ef">else</span> {
+			<span style="color:#a6e22e">proxier</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">ipvs</span>.<span style="color:#a6e22e">NewProxier</span>(
+				<span style="color:#f92672">...</span>
+			)
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unable to create proxier: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+	} <span style="color:#66d9ef">else</span> {
+
+        <span style="color:#75715e">//如果上面iptables和ipvs模式都不能满足条件，则使用userspace模式启动
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">0</span>).<span style="color:#a6e22e">Info</span>(<span style="color:#e6db74">&#34;Using userspace Proxier.&#34;</span>)
+
+		<span style="color:#75715e">// TODO this has side effects that should only happen when Run() is invoked.
+</span><span style="color:#75715e"></span>		<span style="color:#a6e22e">proxier</span>, <span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">userspace</span>.<span style="color:#a6e22e">NewProxier</span>(
+			<span style="color:#a6e22e">userspace</span>.<span style="color:#a6e22e">NewLoadBalancerRR</span>(),
+			<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">ParseIP</span>(<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">BindAddress</span>),
+			<span style="color:#a6e22e">iptInterface</span>,
+			<span style="color:#a6e22e">execer</span>,
+			<span style="color:#f92672">*</span><span style="color:#a6e22e">utilnet</span>.<span style="color:#a6e22e">ParsePortRangeOrDie</span>(<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">PortRange</span>),
+			<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">IPTables</span>.<span style="color:#a6e22e">SyncPeriod</span>.<span style="color:#a6e22e">Duration</span>,
+			<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">IPTables</span>.<span style="color:#a6e22e">MinSyncPeriod</span>.<span style="color:#a6e22e">Duration</span>,
+			<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">UDPIdleTimeout</span>.<span style="color:#a6e22e">Duration</span>,
+			<span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">NodePortAddresses</span>,
+		)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;unable to create proxier: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+		}
+	}
+
+	<span style="color:#a6e22e">iptInterface</span>.<span style="color:#a6e22e">AddReloadFunc</span>(<span style="color:#a6e22e">proxier</span>.<span style="color:#a6e22e">Sync</span>)
+
+	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ProxyServer</span>{
+		<span style="color:#a6e22e">Client</span>:                 <span style="color:#a6e22e">client</span>,
+		<span style="color:#a6e22e">EventClient</span>:            <span style="color:#a6e22e">eventClient</span>,
+		<span style="color:#a6e22e">IptInterface</span>:           <span style="color:#a6e22e">iptInterface</span>,
+		<span style="color:#a6e22e">IpvsInterface</span>:          <span style="color:#a6e22e">ipvsInterface</span>,
+		<span style="color:#a6e22e">IpsetInterface</span>:         <span style="color:#a6e22e">ipsetInterface</span>,
+		<span style="color:#a6e22e">execer</span>:                 <span style="color:#a6e22e">execer</span>,
+		<span style="color:#a6e22e">Proxier</span>:                <span style="color:#a6e22e">proxier</span>,
+	    <span style="color:#f92672">...</span>
+		<span style="color:#a6e22e">ProxyMode</span>:              <span style="color:#a6e22e">proxyMode</span>,
+	    <span style="color:#f92672">...</span>
+	}, <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><p>看来挺简单的就是iptables,ipvs, userspace三种模式分别进行条件判断，iptables模式优先级最高，其次ipvs，最后是userspace模式，最后返回一个初始化好的proxy结构体。</p>
+<p>接下来我们看一下<code>Runloop()</code>中的逻辑</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kube-proxy/app/server.go:309
+</span><span style="color:#75715e"></span><span style="color:#75715e">// runLoop will watch on the update change of the proxy server&#39;s configuration file.
+</span><span style="color:#75715e"></span><span style="color:#75715e">// Return an error when updated
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">o</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Options</span>) <span style="color:#a6e22e">runLoop</span>() <span style="color:#66d9ef">error</span> {
+    <span style="color:#75715e">//watch Kube-proxy配置文件的变化
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">watcher</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">watcher</span>.<span style="color:#a6e22e">Run</span>()
+	}
+
+	<span style="color:#75715e">// goroutine 启动proxyServer
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
+		<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">proxyServer</span>.<span style="color:#a6e22e">Run</span>()
+		<span style="color:#a6e22e">o</span>.<span style="color:#a6e22e">errCh</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">err</span>
+	}()
+    <span style="color:#f92672">...</span>
+}
+</code></pre></div><p>进入<code>proxyServer.Run()</code> 进行查看，</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">//cmd/kube-proxy/app/server.go:527
+</span><span style="color:#75715e"></span><span style="color:#75715e">// 启动 ProxyServer，并且需要保持该server永远不会退出
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">s</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">ProxyServer</span>) <span style="color:#a6e22e">Run</span>() <span style="color:#66d9ef">error</span> {
+
+	<span style="color:#75715e">// TODO(vmarmol): Use container config for this.
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">oomAdjuster</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">oom</span>.<span style="color:#a6e22e">OOMAdjuster</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">OOMScoreAdj</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">oomAdjuster</span> = <span style="color:#a6e22e">oom</span>.<span style="color:#a6e22e">NewOOMAdjuster</span>()
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">oomAdjuster</span>.<span style="color:#a6e22e">ApplyOOMScoreAdj</span>(<span style="color:#ae81ff">0</span>, int(<span style="color:#f92672">*</span><span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">OOMScoreAdj</span>)); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#a6e22e">klog</span>.<span style="color:#a6e22e">V</span>(<span style="color:#ae81ff">2</span>).<span style="color:#a6e22e">Info</span>(<span style="color:#a6e22e">err</span>)
+		}
+	}
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Broadcaster</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EventClient</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Broadcaster</span>.<span style="color:#a6e22e">StartRecordingToSink</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">v1core</span>.<span style="color:#a6e22e">EventSinkImpl</span>{<span style="color:#a6e22e">Interface</span>: <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EventClient</span>.<span style="color:#a6e22e">Events</span>(<span style="color:#e6db74">&#34;&#34;</span>)})
+	}
+
+	<span style="color:#75715e">// Start up a healthz server if requested
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HealthzServer</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">HealthzServer</span>.<span style="color:#a6e22e">Run</span>()
+	}
+
+	<span style="color:#75715e">// Start up a metrics server if requested
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">MetricsBindAddress</span>) &gt; <span style="color:#ae81ff">0</span> {
+		<span style="color:#a6e22e">proxyMux</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">mux</span>.<span style="color:#a6e22e">NewPathRecorderMux</span>(<span style="color:#e6db74">&#34;kube-proxy&#34;</span>)
+		<span style="color:#a6e22e">healthz</span>.<span style="color:#a6e22e">InstallHandler</span>(<span style="color:#a6e22e">proxyMux</span>)
+		<span style="color:#a6e22e">proxyMux</span>.<span style="color:#a6e22e">HandleFunc</span>(<span style="color:#e6db74">&#34;/proxyMode&#34;</span>, <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">w</span> <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">ResponseWriter</span>, <span style="color:#a6e22e">r</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">Request</span>) {
+			<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Fprintf</span>(<span style="color:#a6e22e">w</span>, <span style="color:#e6db74">&#34;%s&#34;</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ProxyMode</span>)
+		})
+		<span style="color:#a6e22e">proxyMux</span>.<span style="color:#a6e22e">Handle</span>(<span style="color:#e6db74">&#34;/metrics&#34;</span>, <span style="color:#a6e22e">legacyregistry</span>.<span style="color:#a6e22e">Handler</span>())
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">EnableProfiling</span> {
+			<span style="color:#a6e22e">routes</span>.<span style="color:#a6e22e">Profiling</span>{}.<span style="color:#a6e22e">Install</span>(<span style="color:#a6e22e">proxyMux</span>)
+		}
+		<span style="color:#a6e22e">configz</span>.<span style="color:#a6e22e">InstallHandler</span>(<span style="color:#a6e22e">proxyMux</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#66d9ef">func</span>() {
+			<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">http</span>.<span style="color:#a6e22e">ListenAndServe</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">MetricsBindAddress</span>, <span style="color:#a6e22e">proxyMux</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#a6e22e">utilruntime</span>.<span style="color:#a6e22e">HandleError</span>(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Errorf</span>(<span style="color:#e6db74">&#34;starting metrics server failed: %v&#34;</span>, <span style="color:#a6e22e">err</span>))
+			}
+		}, <span style="color:#ae81ff">5</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>, <span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#75715e">// Tune conntrack, if requested
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// Conntracker is always nil for windows
+</span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Conntracker</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#a6e22e">max</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getConntrackMax</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>)
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+		}
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">max</span> &gt; <span style="color:#ae81ff">0</span> {
+			<span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Conntracker</span>.<span style="color:#a6e22e">SetMax</span>(<span style="color:#a6e22e">max</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">errReadOnlySysFS</span> {
+					<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+				}
+				<span style="color:#75715e">// errReadOnlySysFS is caused by a known docker issue (https://github.com/docker/docker/issues/24000),
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// the only remediation we know is to restart the docker daemon.
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// Here we&#39;ll send an node event with specific reason and message, the
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// administrator should decide whether and how to handle this issue,
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// whether to drain the node and restart docker.  Occurs in other container runtimes
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// as well.
+</span><span style="color:#75715e"></span>				<span style="color:#75715e">// TODO(random-liu): Remove this when the docker bug is fixed.
+</span><span style="color:#75715e"></span>				<span style="color:#66d9ef">const</span> <span style="color:#a6e22e">message</span> = <span style="color:#e6db74">&#34;CRI error: /sys is read-only: &#34;</span> <span style="color:#f92672">+</span>
+					<span style="color:#e6db74">&#34;cannot modify conntrack limits, problems may arise later (If running Docker, see docker issue #24000)&#34;</span>
+				<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Recorder</span>.<span style="color:#a6e22e">Eventf</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">NodeRef</span>, <span style="color:#a6e22e">api</span>.<span style="color:#a6e22e">EventTypeWarning</span>, <span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>(), <span style="color:#a6e22e">message</span>)
+			}
+		}
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPEstablishedTimeout</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPEstablishedTimeout</span>.<span style="color:#a6e22e">Duration</span> &gt; <span style="color:#ae81ff">0</span> {
+			<span style="color:#a6e22e">timeout</span> <span style="color:#f92672">:=</span> int(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPEstablishedTimeout</span>.<span style="color:#a6e22e">Duration</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Conntracker</span>.<span style="color:#a6e22e">SetTCPEstablishedTimeout</span>(<span style="color:#a6e22e">timeout</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+			}
+		}
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPCloseWaitTimeout</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPCloseWaitTimeout</span>.<span style="color:#a6e22e">Duration</span> &gt; <span style="color:#ae81ff">0</span> {
+			<span style="color:#a6e22e">timeout</span> <span style="color:#f92672">:=</span> int(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConntrackConfiguration</span>.<span style="color:#a6e22e">TCPCloseWaitTimeout</span>.<span style="color:#a6e22e">Duration</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
+			<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Conntracker</span>.<span style="color:#a6e22e">SetTCPCloseWaitTimeout</span>(<span style="color:#a6e22e">timeout</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+				<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+			}
+		}
+	}
+
+	<span style="color:#a6e22e">noProxyName</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">labels</span>.<span style="color:#a6e22e">NewRequirement</span>(<span style="color:#a6e22e">apis</span>.<span style="color:#a6e22e">LabelServiceProxyName</span>, <span style="color:#a6e22e">selection</span>.<span style="color:#a6e22e">DoesNotExist</span>, <span style="color:#66d9ef">nil</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#a6e22e">noHeadlessEndpoints</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">labels</span>.<span style="color:#a6e22e">NewRequirement</span>(<span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">IsHeadlessService</span>, <span style="color:#a6e22e">selection</span>.<span style="color:#a6e22e">DoesNotExist</span>, <span style="color:#66d9ef">nil</span>)
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+	}
+
+	<span style="color:#a6e22e">labelSelector</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">labels</span>.<span style="color:#a6e22e">NewSelector</span>()
+	<span style="color:#a6e22e">labelSelector</span> = <span style="color:#a6e22e">labelSelector</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#f92672">*</span><span style="color:#a6e22e">noProxyName</span>, <span style="color:#f92672">*</span><span style="color:#a6e22e">noHeadlessEndpoints</span>)
+
+	<span style="color:#a6e22e">informerFactory</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">informers</span>.<span style="color:#a6e22e">NewSharedInformerFactoryWithOptions</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Client</span>, <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConfigSyncPeriod</span>,
+		<span style="color:#a6e22e">informers</span>.<span style="color:#a6e22e">WithTweakListOptions</span>(<span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">options</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">metav1</span>.<span style="color:#a6e22e">ListOptions</span>) {
+			<span style="color:#a6e22e">options</span>.<span style="color:#a6e22e">LabelSelector</span> = <span style="color:#a6e22e">labelSelector</span>.<span style="color:#a6e22e">String</span>()
+		}))
+
+	<span style="color:#75715e">// Create configs (i.e. Watches for Services and Endpoints or EndpointSlices)
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// Note: RegisterHandler() calls need to happen before creation of Sources because sources
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// only notify on changes, and the initial update (on process start) may be lost if no handlers
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// are registered yet.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">serviceConfig</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">NewServiceConfig</span>(<span style="color:#a6e22e">informerFactory</span>.<span style="color:#a6e22e">Core</span>().<span style="color:#a6e22e">V1</span>().<span style="color:#a6e22e">Services</span>(), <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConfigSyncPeriod</span>)
+	<span style="color:#a6e22e">serviceConfig</span>.<span style="color:#a6e22e">RegisterEventHandler</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Proxier</span>)
+	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">serviceConfig</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">utilfeature</span>.<span style="color:#a6e22e">DefaultFeatureGate</span>.<span style="color:#a6e22e">Enabled</span>(<span style="color:#a6e22e">features</span>.<span style="color:#a6e22e">EndpointSlice</span>) {
+		<span style="color:#a6e22e">endpointSliceConfig</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">NewEndpointSliceConfig</span>(<span style="color:#a6e22e">informerFactory</span>.<span style="color:#a6e22e">Discovery</span>().<span style="color:#a6e22e">V1alpha1</span>().<span style="color:#a6e22e">EndpointSlices</span>(), <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConfigSyncPeriod</span>)
+		<span style="color:#a6e22e">endpointSliceConfig</span>.<span style="color:#a6e22e">RegisterEventHandler</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Proxier</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">endpointSliceConfig</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	} <span style="color:#66d9ef">else</span> {
+		<span style="color:#a6e22e">endpointsConfig</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">config</span>.<span style="color:#a6e22e">NewEndpointsConfig</span>(<span style="color:#a6e22e">informerFactory</span>.<span style="color:#a6e22e">Core</span>().<span style="color:#a6e22e">V1</span>().<span style="color:#a6e22e">Endpoints</span>(), <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">ConfigSyncPeriod</span>)
+		<span style="color:#a6e22e">endpointsConfig</span>.<span style="color:#a6e22e">RegisterEventHandler</span>(<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Proxier</span>)
+		<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">endpointsConfig</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+	}
+
+	<span style="color:#75715e">// This has to start after the calls to NewServiceConfig and NewEndpointsConfig because those
+</span><span style="color:#75715e"></span>	<span style="color:#75715e">// functions must configure their shared informer event handlers first.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">informerFactory</span>.<span style="color:#a6e22e">Start</span>(<span style="color:#a6e22e">wait</span>.<span style="color:#a6e22e">NeverStop</span>)
+
+	<span style="color:#75715e">// Birth Cry after the birth is successful
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">birthCry</span>()
+
+	<span style="color:#75715e">// Just loop forever for now...
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">Proxier</span>.<span style="color:#a6e22e">SyncLoop</span>()
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+}
+</code></pre></div><h3 id="heading-1">参考</h3>
+<p><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/</a></p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer">
+          <a href="/k8s/calico-source-code/" data-toggle="tooltip" data-placement="top" title="Calico 学习及源码分析">&lt; Newer</a>
+      </li>
+      <li class="pager-older">
+        <a href="/k8s/kubelet-create-pod-lifecycle/" data-toggle="tooltip" data-placement="top" title="Kubelet 创建pod流程分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>

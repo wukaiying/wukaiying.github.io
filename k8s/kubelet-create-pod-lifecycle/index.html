@@ -479,7 +479,7 @@
 <ul>
 <li>
 <ol>
-<li>对syncPod中传入参数进行判断，如果是删除Pod,则直接删除</li>
+<li>对syncPod(kubelet核心循环逻辑)中传入参数进行判断，如果是删除Pod,则直接删除</li>
 </ol>
 </li>
 <li>
@@ -532,7 +532,9 @@
 
 
     <ul class="pager article-pager">
-      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-newer">
+          <a href="/k8s/kube-proxy-source-code-read/" data-toggle="tooltip" data-placement="top" title="K8S Proxy 源码分析">&lt; Newer</a>
+      </li>
       <li class="pager-older">
         <a href="/k8s/kube-scheduler-priority-source-read/" data-toggle="tooltip" data-placement="top" title="Kube Scheduler 优选策略源码分析">Older &gt;</a>
       </li>

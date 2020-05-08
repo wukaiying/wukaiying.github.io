@@ -956,6 +956,7 @@ example
 <a href="https://github.com/kubernetes-sigs/kube-batch">Kube-batch</a>, gang scheduler 是某些领域，比如大数据、批量计算场景 常用的的调度方式，即讲一组资源当成一个 group，如果有 group 够用的资源就整个调度，或者整个不调度 (而传统的 kubernetes 的调度粒度为 pod). kubebatch 试图解决此类问题，并且想把这种通用的需求变成标准，解决所有类似的问题.</p>
 <p><a href="https://github.com/AliyunContainerService/gpushare-scheduler-extender">gpushare-scheduler-extender</a>
 为 gpu share divice 扩展的 scheduler，支持多个 pod 共享 gpu显存和 card. 目前的 device 机制能注册资源总量，但是对于调度来讲，信息不太够，因此 gpushare-scheduler-extender 提供了一层 filter 帮助判断 node 上是否有足够的 gpu 资源.</p>
+<p><a href="https://www.kubernetes.org.cn/4738.html?from=singlemessage">Kubernetes+GPU构建Tensorflow应用实践</a></p>
 <h3 id="heading-5">参考</h3>
 <p><a href="https://kubernetes.io/zh/docs/reference/command-line-tools-reference/kube-scheduler/">https://kubernetes.io/zh/docs/reference/command-line-tools-reference/kube-scheduler/</a></p>
 <p><a href="https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/kube_scheduler_algorithm.html">https://blog.tianfeiyu.com/source-code-reading-notes/kubernetes/kube_scheduler_algorithm.html</a></p>
