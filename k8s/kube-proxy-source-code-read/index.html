@@ -65,6 +65,7 @@
         <li><a href="#heading">前言</a></li>
         <li><a href="#service-">service 工作原理</a></li>
         <li><a href="#service--1">service 暴露服务方式</a></li>
+        <li><a href="#service--2">service 数据包流动分析</a></li>
         <li><a href="#kube-proxy-">kube-proxy 模式</a></li>
         <li><a href="#kube-proxy--1">kube-proxy 源码分析入口</a></li>
         <li><a href="#heading-1">参考</a></li>
@@ -92,6 +93,89 @@ kube-proxy 会监听 service 和 endpoints 的变化并调用其代理模块在�
 <pre><code>client ---&gt; NodeIP:NodePort ---&gt; ClusterIP:ServicePort ---&gt; (iptables)DNAT ---&gt; PodIP:containePort
 </code></pre><h4 id="loadbalancer">LoadBalancer</h4>
 <h4 id="ingress">Ingress</h4>
+<h3 id="service--2">service 数据包流动分析</h3>
+<p>实验背景就是，我们启动三个nginx pod，pod3和pod2在node2中，而pod1在node1中。网络设备结构图如下：
+pod2和pod3在同一个node中，为了简洁暂未画出。</p>
+<p><img src="https://ae01.alicdn.com/kf/H141dc8aab17a45569fa79d69eaa7c57a7.jpg" alt=""></p>
+<p>nginx部署yaml文件如下：</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-yaml" data-lang="yaml">apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: nginx
+spec:
+  replicas: <span style="color:#ae81ff">3</span>
+  selector:
+    app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: <span style="color:#ae81ff">80</span>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  labels:
+    name: nginx-service
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: <span style="color:#ae81ff">80</span>
+      targetPort: <span style="color:#ae81ff">80</span>
+      nodePort: <span style="color:#ae81ff">30001</span>
+</code></pre></div><p>部署完成之后，我们访问service如下：</p>
+<pre><code>$ kubectl get svc -o wide
+NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE   SELECTOR 
+nginx-service   NodePort    10.96.193.229   &lt;none&gt;        80:30001/TCP   9d    app=nginx
+</code></pre><p>nginx-service含有三个后端endpoint</p>
+<ul>
+<li>情景一 从pod2中发送curl nginx-service请求</li>
+</ul>
+<p>在pod2中curl 10.96.193.229，通过service cluster-ip来访问nginx, 数据包从pod2 eth0到达Cali.c2，再从Cali.c2发往tunl0之前会被iptables拦截做一次DNAT，
+将原来的目标地址10.96.193.229转化为pod1的地址10.100.15.150，此时也就是说经过了一次负载均衡，选中了pod1作为服务端server来相应这次请求。</p>
+<p>然后，经过DNAT的数据包达到node2 tunl0设备，添加上新的ip头(172.31.127.252-&gt;172.31.112.2)，通过隧道发往node1网卡eth0,
+然后通过tunl0解包，拿到原始的目标地址，也就是pod1的地址10.100.15.150，然后通过pod1中的veth pair对到达pod1。</p>
+<p><img src="https://ae01.alicdn.com/kf/H81f7e44dff6d46d989c2769e6bfe01d9m.jpg" alt=""></p>
+<p>iptables分析：</p>
+<ul>
+<li>情景二 同一个node中pod的相互调用</li>
+</ul>
+<p>从pod2中发出curl nginx-service(curl 10.96.193.229)请求，假设负载均衡到了pod3,也就是说收到了pod3的应答。同一个node中调用，不会调用tunl0进行IPIP封装，直接通过
+Cali.c2发送到Cali.fa，当然中间会经过iptables做一次DNAT替换，将目标地址从10.96.193.229更换为pod3的地址10.100.9.207。</p>
+<p><img src="https://ae01.alicdn.com/kf/H554ef8e1b60e4d8f9f672248dbe03ff9d.jpg" alt=""></p>
+<ul>
+<li>情景三 同一个pod发生调用</li>
+</ul>
+<p>从pod2中发出curl nginx-service(curl 10.96.193.229)请求，负载均衡到了pod2本身</p>
+<ul>
+<li>情景四 集群外部调用nginx服务</li>
+</ul>
+<p>我们通过访问nodeip:30001，来验证集群外调用，通过抓包，我们直接贴出ip包流向图：</p>
+<p>当用户访问curl 172.31.112.2:30001时，也就是通过nodeport(hostip+port)的方式来访问nginx服务，
+请求发出后kube-proxy首先会做一次反向代理，随机选择一个端口将请求代理到172.31.112.2.57546，然后经过iptables负载均衡，选择了pod1
+提供服务，如果选择的pod所在的node节点和curl 请求的hostip一致，就相当于本机pod访问，此时数据包源地址目标地址为：172.31.112.2:57546-&gt;10.100.15.150:80
+直接通过pod1所在的veth pair对到达pod1，完成访问。</p>
+<p>如果经过iptables负载均衡，选择pod2提供服务，首先随机选择一个端口将请求代理到172.31.112.2.57546，经过iptables做一次SNAT，将源ip地址替换为tunl0 ip地址。
+此时源地址目标地址为10.100.15.128:57546(node1中tunl0的地址)&ndash;&gt;10.100.9.206:80(pod2的地址)，接着tunl0进行ipip封包，源地址和目标地址变为：
+127031.112.0&ndash;&gt;172.31.127.252:10.100.15.128:57546(node1中tunl0的地址)&ndash;&gt;10.100.9.206:80(pod2的地址)。此时数据包到达node2的eth0网卡，经过tunl0设备解包，
+拿到实际的包10.100.15.128:57546(node1中tunl0的地址)&ndash;&gt;10.100.9.206:80(pod2的地址)，经过pod2 veth pair对到达pod2，完成访问。</p>
+<p>总结来说就是：</p>
+<ol>
+<li>访问同一个node中的pod，通过nodeport访问从外部访问nginx服务，发送curl 172.31.112.2:30001请求时，首先kube-proxy会做一次反向代理，随机选择一个端口将请求代理到172.31.112.2:57546，由它来去请求pod服务。然后通过iptabels做一次DNAT修改目的地址为10.100.15.10:80，此时数据包变成172.31.112.2:57546&ndash;&gt;10.100.15.10:80，不经过tunl0设备直接到达目标pod。</li>
+</ol>
+<p>2.访问不同的node中的pod,通过nodeport访问从外部访问nginx服务，发送curl 172.31.112.2:30001请求时，首先kube-proxy会做一次反向代理，随机选择一个端口将请求代理到172.31.112.2:57546，由它来去请求pod服务，然后通过iptables发现需要经过tunl0设备，首先做SNAT，修改源地址为tunl0地址，然后做DNAT修改目的地址为10.100.9.206：80，然后通过IPIP加上新的包头。
+这样就发送到了node2所在的节点，经过tunl0,经过pod veth paird对到达目标pod。</p>
+<p><img src="https://ae01.alicdn.com/kf/H88369b6c7d034c5ea5395b213b2f048as.jpg" alt=""></p>
 <h3 id="kube-proxy-">kube-proxy 模式</h3>
 <p>kube-proxy 的路由转发规则是通过其后端的代理模块实现的，kube-proxy 的代理模块目前有四种实现方案，userspace、iptables、ipvs、kernelspace，其发展历程如下所示：</p>
 <ul>
@@ -418,7 +502,8 @@ kube-proxy 会监听 service 和 endpoints 的变化并调用其代理模块在�
 	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
 }
 </code></pre></div><h3 id="heading-1">参考</h3>
-<p><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/</a></p>
+<p><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/</a>
+<a href="https://blog.csdn.net/u010771890/article/details/103226784">https://blog.csdn.net/u010771890/article/details/103226784</a></p>
 
     </article>
 

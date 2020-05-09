@@ -71,7 +71,7 @@ kube-proxy 组件可以运行在 kubernetes 集群中的每一个节点上也可
 service 工作原理 endpoint controller 负责监听 service 和对应 pod 的变化，更新对应 service 的 endpoints 对象。当用户创建 service 后 endpoints controller 会监听 pod 的状态，当 pod 处于 running 且准备就绪时，endpoints controller 会将 pod ip 记录到 endpoints 对象中。 kube-proxy 会监听 service 和 endpoints 的变化并调用其代理模块在主机上刷新路由规则。
 总结就是，endpoint controller负责更新service ip和其对应后端服务endpoint ip的关系。而kube-proxy则负责更新各个节点的iptables或者ipvs使得流量能够被正常转发。
 service 暴露服务方式 ClusterIp ClusterIP 类型的 service 是 kubernetes 集群默认的服务暴露方式，它只能用于集群内部通信，可以被各 pod 访问，其访问方式为：
-pod ---&amp;gt; ClusterIP:ServicePort --&amp;gt; (iptables)DNAT --&amp;gt; PodIP:containePort NodePort client ---&amp;gt; NodeIP:NodePort ---&amp;gt; ClusterIP:ServicePort ---&amp;gt; (iptables)DNAT ---&amp;gt; PodIP:containePort LoadBalancer Ingress kube-proxy 模式 kube-proxy 的路由转发规则是通过其后端的代理模块实现的，kube-proxy 的代理模块目前有四种实现方案，userspace、iptables、ipvs、kernelspace，其发展历程如下所示：</description>
+pod ---&amp;gt; ClusterIP:ServicePort --&amp;gt; (iptables)DNAT --&amp;gt; PodIP:containePort NodePort client ---&amp;gt; NodeIP:NodePort ---&amp;gt; ClusterIP:ServicePort ---&amp;gt; (iptables)DNAT ---&amp;gt; PodIP:containePort LoadBalancer Ingress service 数据包流动分析 实验背景就是，我们启动三个nginx pod，pod3和pod2在node2中，而pod1在node1中。网络设备结构图如下： pod2和pod3在同一个node中，为了简洁暂未画出。</description>
     </item>
     
     <item>
