@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>K8sstorages - Kaiying</title>
+  <meta property="og:title" content="K8sstorages - Kaiying" />
+  <meta name="twitter:title" content="K8sstorages - Kaiying" />
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8sstorage/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+  <link href="/k8sstorage/index.xml" rel="alternate" type="application/rss+xml" title="Kaiying" />
+  <link href="/k8sstorage/index.xml" rel="feed" type="application/rss+xml" title="Kaiying" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="breadcrumb">
+    K8sstorages
+  </div>
+  <div class="main" role="main">
+    <section class="list section-list">
+      <article class="article">
+        <a href="/k8sstorage/ceph/" class="article-titles">
+          <h2 class="article-title">Ceph学习笔记</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>May 19, 2020</time></li>
+        </ul>
+        <div class="article-content">
+          介绍 ceph 独一无二地用统一的系统提供了三大存储方式： ceph 块存储
+ceph 文件存储(cephFS)
+ceph 对象存储
+快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
+ docker 部署  $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件   RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
+  OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。 ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。
+ ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘    通过命令查看单个节点上OSD的状态：
+$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree  MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。  $ service ceph status mon $ ceph mon stat $ ceph mon_status $ ceph mon dump   librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言
+        </div>
+        <div class="article-readmore"><a href="/k8sstorage/ceph/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+    </section>
+    
+
+
+  </div>
+
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-rsslink">
+      <a href="/k8sstorage/index.xml" type="application/rss+xml" target="_blank" title="RSS">
+        <i class="fas fa-rss"></i>
+      </a>
+    </li>
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>

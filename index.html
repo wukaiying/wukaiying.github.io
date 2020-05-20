@@ -80,6 +80,27 @@ syntax = &#34;proto3&#34;;package proto;message GetRequest { string key = 1;}mes
         <div class="article-floatclear"></div>
       </article>
       <article class="article">
+        <a href="/k8sstorage/ceph/" class="article-titles">
+          <h2 class="article-title">Ceph学习笔记</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>May 19, 2020</time></li>
+        </ul>
+        <div class="article-content">
+          介绍 ceph 独一无二地用统一的系统提供了三大存储方式： ceph 块存储
+ceph 文件存储(cephFS)
+ceph 对象存储
+快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
+ docker 部署  $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件   RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
+  OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。 ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。
+ ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘    通过命令查看单个节点上OSD的状态：
+$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree  MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。  $ service ceph status mon $ ceph mon stat $ ceph mon_status $ ceph mon dump   librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言
+        </div>
+        <div class="article-readmore"><a href="/k8sstorage/ceph/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8s/calico-source-code/" class="article-titles">
           <h2 class="article-title">Calico 学习及源码分析</h2>
           
@@ -284,44 +305,6 @@ cmd/kube-controller-manager/app/apps.go:69 func startReplicaSetController(ctx Co
 func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeControllerManagerOptions() if err != nil { klog.Fatalf(&#34;unable to initialize command options: %v&#34;, err) } cmd := &amp;cobra.Command{ Use: &#34;kube-controller-manager&#34;, Run: func(cmd *cobra.Command, args []string) { verflag.PrintAndExitIfRequested() utilflag.PrintFlags(cmd.Flags()) c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List()) if err != nil { fmt.Fprintf(os.Stderr, &#34;%v\n&#34;, err) os.
         </div>
         <div class="article-readmore"><a href="/k8s/controller-manager-source-code-read/">Read more...</a></div>
-        <div class="article-floatclear"></div>
-      </article>
-      <article class="article">
-        <a href="/k8s/api-server-source-read/" class="article-titles">
-          <h2 class="article-title">K8S Api Server 源码分析</h2>
-          
-        </a>
-        <ul class="article-meta">
-          <li class="article-meta-date"><time>April 13, 2020</time></li>
-          <li class="article-meta-categories">
-            <a href="/categories/k8s/">
-              <i class="fas fa-folder"></i>
-              k8s
-            </a>&nbsp;
-          </li>
-        </ul>
-        <div class="article-content">
-          版本环境   kubernetes版本：kubernetes:v1.16.0
-  go环境：go version go1.13.4 darwin/amd64
-  Api Server架构 kubernetes api server 提供了增删改查，list,watch各类资源的接口，对请求进行验证，鉴权及admission controller, 请求成功后将结果更新到后端存储etcd（也可以是其他存储）中。
-api server 架构从上到下可以分为以下几层：
-1.Api层，主要包含三种api core api: 主要在/api/v1下
-分组api: 其path为/apis/$NAME/$VERSION
-暴露系统状态的api: 如/metrics,/healthz,/logs,/openapi等
-$ curl -k https://127.0.0.1:56521 { &#34;paths&#34;: [ &#34;/api&#34;, &#34;/api/v1&#34;, &#34;/apis&#34;, &#34;/apis/&#34;, &#34;/apis/admissionregistration.k8s.io&#34;, &#34;/apis/admissionregistration.k8s.io/v1beta1&#34;, ... &#34;/healthz&#34;, &#34;/healthz/autoregister-completion&#34;, &#34;/healthz/etcd&#34;, ... &#34;/logs&#34;, &#34;/metrics&#34;, &#34;/openapi/v2&#34;, &#34;/swagger-2.0.0.json&#34;, &#34;/swaggerapi&#34;, &#34;/version&#34; 2.访问控制层 当用户访问api接口时，访问控制层将会做如下校验：
-对用户进行身份校验(authentication)&ndash;&gt; 校验用户对k8s资源对象访问权限(authorization) &ndash;&gt; 根据配置的资源访问许可逻辑(admission control)，判断是否访问。
-下面分别对这三种校验方式进行说明：
-2.1 Authentication 身份校验 k8s提供了三种客户端身份校验方式：https双向证书认证，http token方式认证， http base 认证也就是用户名密码方式
-a. 基于CA根证书签名的双向数字证书认证
-client和server向CA机构申请证书
-client-&gt;server，server下发服务端证书，client利用证书验证server是否合法
-client发送客户端证书给server，server利用证书校验client是否合法
-client和server利用随机密钥加密消息，然后通信
-apiserver启动的时候通过&ndash;client-ca-file=XXXX配置签发client证书的CA，当client发送证书过来时，apiserver使用CA验证，如果证书合法，则可进行通信。
-这种方式的优点是安全，缺点是无法撤销用户证书，创建集群就绑定了证书。
-$ k get pods kube-apiserver-kind-control-plane -n kube-system -o yaml - command: - kube-apiserver - --authorization-mode=Node,RBAC - --advertise-address=172.17.0.2 - --allow-privileged=true - --client-ca-file=/etc/kubernetes/pki/ca.crt b.
-        </div>
-        <div class="article-readmore"><a href="/k8s/api-server-source-read/">Read more...</a></div>
         <div class="article-floatclear"></div>
       </article>
     </section>

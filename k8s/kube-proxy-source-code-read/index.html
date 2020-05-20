@@ -156,7 +156,8 @@ Cali.c2发送到Cali.fa，当然中间会经过iptables做一次DNAT替换，将
 <ul>
 <li>情景三 同一个pod发生调用</li>
 </ul>
-<p>从pod2中发出curl nginx-service(curl 10.96.193.229)请求，负载均衡到了pod2本身</p>
+<p>从pod2中发出curl nginx-service(curl 10.96.193.229)请求，负载均衡到了pod2本身
+首先做一次DNAT转化，将源地址10.96.193.229替换为10.100.9.206，</p>
 <ul>
 <li>情景四 集群外部调用nginx服务</li>
 </ul>

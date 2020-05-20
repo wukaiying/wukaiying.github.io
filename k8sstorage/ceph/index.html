@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Ceph学习笔记 - Kaiying</title>
+  <meta property="og:title" content="Ceph学习笔记 - Kaiying" />
+  <meta name="twitter:title" content="Ceph学习笔记 - Kaiying" />
+  <meta name="description" content="介绍 ceph 独一无二地用统一的系统提供了三大存储方式： ceph 块存储
+ceph 文件存储(cephFS)
+ceph 对象存储
+快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
+ docker 部署  $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件   RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
+  OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。 ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。
+ ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘    通过命令查看单个节点上OSD的状态：
+$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree  MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。  $ service ceph status mon $ ceph mon stat $ ceph mon_status $ ceph mon dump   librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言">
+  <meta property="og:description" content="介绍 ceph 独一无二地用统一的系统提供了三大存储方式： ceph 块存储
+ceph 文件存储(cephFS)
+ceph 对象存储
+快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
+ docker 部署  $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件   RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
+  OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。 ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。
+ ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘    通过命令查看单个节点上OSD的状态：
+$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree  MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。  $ service ceph status mon $ ceph mon stat $ ceph mon_status $ ceph mon dump   librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言">
+  <meta name="twitter:description" content="介绍 ceph 独一无二地用统一的系统提供了三大存储方式： ceph 块存储
+ceph 文件存储(cephFS)
+ceph 对象存储
+快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
+ docker 部署  $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ …">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8sstorage/ceph/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Ceph学习笔记</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>May 19, 2020</time></li>
+      </ul>
+      
+      <h3 id="heading">介绍</h3>
+<p>ceph 独一无二地用统一的系统提供了三大存储方式：
+ceph 块存储</p>
+<p>ceph 文件存储(cephFS)</p>
+<p>ceph 对象存储</p>
+<h3 id="heading-1">快速部署</h3>
+<p>ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来</p>
+<ul>
+<li>docker 部署</li>
+</ul>
+<pre><code>$ rm -fr /etc/ceph
+$ rm -fr /var/lib/ceph
+$ mkdir -p /etc/ceph
+$ mkdir -p /var/lib/ceph
+
+$ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq  -e CEPH_DEMO_ACCESS_KEY=qqq  -e CEPH_DEMO_SECRET_KEY=qqq  -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo
+$ curl http://192.168.0.0:5000
+$ docker exec -it cephdemo ceph -s
+</code></pre><h3 id="heading-2">架构及组件</h3>
+<p><img src="https://ae01.alicdn.com/kf/Hfde8af3989fb425c93d97f12a971695ct.jpg" alt=""></p>
+<ul>
+<li>
+<p>RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。
+ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。</p>
+</li>
+<li>
+<p>OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。
+ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。</p>
+<pre><code>                      ceph OSD
+                      文件系统        --&gt;btrfs或XFS或ext4
+                      物理磁盘
+</code></pre>
+</li>
+</ul>
+<p>通过命令查看单个节点上OSD的状态：</p>
+<pre><code>$ service ceph status osd
+#查看所有osd的ID
+$ service osd ls
+#检查osd map的状态
+$ ceph osd stat
+#检查osd 树形图
+$ ceph osd tree
+</code></pre><ul>
+<li>MON Ceph monitor 跟踪整个集群的健康状态
+一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。</li>
+</ul>
+<pre><code>$ service ceph status mon
+$ ceph mon stat
+$ ceph mon_status
+$ ceph mon dump
+</code></pre><ul>
+<li>
+<p>librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言</p>
+</li>
+<li>
+<p>RBD ceph块设备，对外提供块存储
+块存储是企业环境中最常见的一种数据存储方式，ceph块设备也称之为RADOS块设备(RBD)</p>
+</li>
+<li>
+<p>RGW ceph对象网关，提供了兼容s3和openstack对象存储swift的接口
+也称之为RADOS网关，它是一个代理可以将http请求转换为RADOS，同时也可以将RADOS请求转化为http请求。
+<img src="https://ae01.alicdn.com/kf/H0fad099edbd745e39b7f7ead00a88764Q.jpg" alt=""></p>
+</li>
+<li>
+<p>MDS ceph元数据服务器
+只有ceph文件系统(CephFS)才需要，其他存储方法不需要。</p>
+</li>
+</ul>
+<p>cephFS ceph文件系统</p>
+<h3 id="ceph-">ceph 内部模块</h3>
+<ul>
+<li>对象</li>
+</ul>
+<p>一个对象包括数据及元数据，并用一个唯一id作为标识。ceph以对象的方式进行存储。</p>
+<ul>
+<li>
+<p>CRUSH（controlled Replication Under Scalable Hashing）
+与传统系统依赖于存储和管理一个核心元数据/索引表不同的是，ceph使用crush算法来准确的计算数据应该被写到哪里或者去哪里读取。</p>
+<p>crush 查找</p>
+<p>对于ceph集群的以此读写操作，客户端首先联系cpeh的monitor获取一个集群的map副本。通过map获取ceph获取集群状态和配置信息。然后将数据转化为对象
+，并将对象和PG(placement groups)经过散列来生成它在ceph池中最终存放在哪个一个PG。拿到前面计算好的PG经过CRUSH查找来确定存储或获取数据的主OSD的位置。
+拿到目标OSD的ID，客户端直接联系该OSD存储数据，等数据写完后，主OSD节点会执行复制操作，实现数据高可用。</p>
+</li>
+<li>
+<p>PG(Placement Group)</p>
+</li>
+</ul>
+<p>所有数据被抽象成多个object，每个object都会对应到唯一的一个pg上（多副本表示有多个相同的pg，当然object也自然是多副本的），然后pg映射到osd上存储。为什么不将对象直接映射在OSD上是因为
+object数量就太多了，这样可能会加大复杂性，而且也会带来不小的开销，于是引进pg这个概念，把object装进pg中，以pg为存储单元个体，直接追踪pg状态，一般pg数量是远远小于object数量的。</p>
+<ul>
+<li>ceph池</li>
+</ul>
+<p>ceph每个池中都包含一定数量的PG,可以实现将一定数量的对象映射到不同的OSD上。</p>
+<ul>
+<li>ceph数据管理
+数据管理始于客户端向ceph池中写数据，一旦客户端准备写数据到ceph翅中，数据首先写到主osd中，主osd在复制相同的数据到第二osd和第三osd中，确认写入完成。当所有的osdd都完成后，主osd返回应答信号给客户端，确认写完成。</li>
+</ul>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older pager-noitem">Older &gt;</li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
