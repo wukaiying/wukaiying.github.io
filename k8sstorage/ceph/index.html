@@ -83,7 +83,11 @@ docker 部署 $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ …">
     </li>
     <li><a href="#heading-2">架构及组件</a></li>
     <li><a href="#ceph-">ceph 内部模块</a></li>
-    <li><a href="#ceph--1">ceph 配置</a></li>
+    <li><a href="#ceph--1">ceph 配置</a>
+      <ul>
+        <li><a href="#pool">创建资源池pool</a></li>
+      </ul>
+    </li>
   </ul>
 </nav>
 </aside>
@@ -186,14 +190,12 @@ object数量就太多了，这样可能会加大复杂性，而且也会带来�
 </li>
 </ul>
 <h2 id="ceph--1">ceph 配置</h2>
-<ul>
-<li>创建资源池pool</li>
-</ul>
+<h3 id="pool">创建资源池pool</h3>
 <p>我们先以Ceph RBD的方式来介绍Ceph集群的使用，通过在Ceph集群中创建一个RBD块文件供用户进行使用，要使用Ceph，首先需要一个资源池pool，pool是Ceph中数据存储抽象的概念，其由多个pg（Placegroup)和pgp组成，创建的时候可以指定pg的数量，pg的大小一般为2^n次方，如下先创建一个pool</p>
-<p>1、创建一个pool，其名字为happylau，包含64个PG/PGP，</p>
+<p>1.创建一个pool，其名字为happylau，包含64个PG/PGP，</p>
 <pre><code>[root@node-1 ~]# ceph osd pool create happylau 64 64 
 pool 'happylau' created
-</code></pre><p>2、可以查看pool的信息，如查看当前集群的pool列表——lspools,可以使用df查看资源池的存储空间</p>
+</code></pre><p>2.可以查看pool的信息，如查看当前集群的pool列表——lspools,可以使用df查看资源池的存储空间</p>
 <p>查看pool列表
 [root@node-1 ~]# ceph osd lspools
 1 happylau</p>
@@ -205,7 +207,7 @@ GLOBAL:
 POOLS:
     NAME         ID     USED       %USED     MAX AVAIL     OBJECTS 
     happylau     1      14 MiB      0.03        46 GiB          24 
-</code></pre><p>3、查看pg_num和pgp_num,副本数size大小</p>
+</code></pre><p>3.查看pg_num和pgp_num,副本数size大小</p>
 <p>查看pg和pgp数量</p>
 <pre><code>[root@node-1 ~]# ceph osd pool get happylau pg_num
 pg_num: 64
@@ -217,10 +219,10 @@ pgp_num: 64
 <pre><code>             (OSDs * 100)
 Total PGs =  ------------
               pool size
-</code></pre><p>4、调整pool的pg_num和pgp_num数量,调整pg和pgp会涉及到数据迁移，如果线上业务情评估好，在低峰期做操作，避免数据rebalancing造成业务影响</p>
+</code></pre><p>4.调整pool的pg_num和pgp_num数量,调整pg和pgp会涉及到数据迁移，如果线上业务情评估好，在低峰期做操作，避免数据rebalancing造成业务影响</p>
 <pre><code>[root@node-1 ~]# ceph osd pool set happylau pg_num 128
 [root@node-1 ~]# ceph osd pool set happylau pgp_num 128
-</code></pre><p>5、调整副本数，可以根据需要调整资源池pool的副本数，默认为三个，也可以手动调整pool副本数量的个数，以下调整pool资源池副本数量为2个副本</p>
+</code></pre><p>5.调整副本数，可以根据需要调整资源池pool的副本数，默认为三个，也可以手动调整pool副本数量的个数，以下调整pool资源池副本数量为2个副本</p>
 <pre><code>[root@node-1 ~]# ceph osd pool set happylau size 2
 set pool 1 size to 2
 </code></pre><p>查看校验pool副本个数</p>
@@ -247,7 +249,7 @@ size: 2
   io:
     client:   3.2 KiB/s wr, 0 op/s rd, 0 op/s wr
 </code></pre><p>由上可以看到Ceph集群当前的整体情况，包含有cluster，services，data，io信息，health状态可以看到集群当前处于告警HEALTH_WARN状态，告警提示内容为“application not enabled on 1pool(s)”，资源池pool未启用application，Ceph推荐开启application的功能。</p>
-<p>6、开启application功能,application即设置资源池pool存储接口类型，包含三种：rbd，cephfs和,rgw，可以根据资源池pool的类型，设置不同的application，如下开启资源池为rbd类型</p>
+<p>6.开启application功能,application即设置资源池pool存储接口类型，包含三种：rbd，cephfs和,rgw，可以根据资源池pool的类型，设置不同的application，如下开启资源池为rbd类型</p>
 <pre><code>[root@node-1 ~]# ceph osd pool application enable happylau rbd
 enabled application 'rbd' on pool 'happylau'
 
@@ -277,10 +279,10 @@ enabled application 'rbd' on pool 'happylau'
 <li>RBD块存储使用
 Ceph RBD块存储主要为虚拟化如KVM提供块存储设备，KVM需要依赖于qemu和libvirt和RBD块存储交互，这也是和云平台如OpenStack，CloudStack，Kubernetes交互的基础，因此非常有必要掌握Ceph原生RBD块存储的使用。由于当前Ceph集群未与虚拟化或者云平台进行集成，因此采用原生的rbd接口与Ceph进行交互（云平台通过调用rbd接口完成块存储生命周期管理）。</li>
 </ul>
-<p>1、rbd块存储接口交互的工具为rbd，通过rbd命令来实现RBD块的创建，如创建一个10G的块存储</p>
+<p>1.rbd块存储接口交互的工具为rbd，通过rbd命令来实现RBD块的创建，如创建一个10G的块存储</p>
 <pre><code>[root@node-1 ~]# rbd create -p happylau --image ceph-rbd-demo.img --size 10G 
 
-</code></pre><p>2、如上创建了一个ceph-rbd-demo.img的RBD块文件，大小为10G，可以通过ls和info查看RBD镜像的列表和详情信息</p>
+</code></pre><p>2.如上创建了一个ceph-rbd-demo.img的RBD块文件，大小为10G，可以通过ls和info查看RBD镜像的列表和详情信息</p>
 <p>查看RBD镜像列表</p>
 <pre><code>[root@node-1 ~]# rbd -p happylau ls 
 ceph-rbd-demo.img
@@ -296,7 +298,7 @@ rbd image 'ceph-rbd-demo.img':
 	op_features: 
 	flags: 
 	create_timestamp: Mon Mar  2 15:32:39 2020
-</code></pre><p>3、RBD存储块已创建起来了，如何使用呢？如果已和虚拟化环境结合，创建好虚拟机然后在磁盘中写数据即可，但此时还未与虚拟化结合（结合难度也比较大，后续再专门讨论），rbd提供了一个map的工具，可以将一个RBD块映射到本地块进行使用，大大简化了使用过程，rbd map时候，exclusive-lock, object-map, fast-diff, deep-flatten的features不支持，因此需要先disable，否则会提示RBD image feature set mismatch报错信息</p>
+</code></pre><p>3.RBD存储块已创建起来了，如何使用呢？如果已和虚拟化环境结合，创建好虚拟机然后在磁盘中写数据即可，但此时还未与虚拟化结合（结合难度也比较大，后续再专门讨论），rbd提供了一个map的工具，可以将一个RBD块映射到本地块进行使用，大大简化了使用过程，rbd map时候，exclusive-lock, object-map, fast-diff, deep-flatten的features不支持，因此需要先disable，否则会提示RBD image feature set mismatch报错信息</p>
 <p>关闭默认的featrues</p>
 <pre><code>[root@node-1 ~]# rbd -p happylau --image ceph-rbd-demo.img feature disable deep-flatten
 [root@node-1 ~]# rbd -p happylau --image ceph-rbd-demo.img feature disable fast-diff
@@ -319,7 +321,7 @@ rbd image 'ceph-rbd-demo.img':
 /dev/rbd0
 [root@node-1 ~]# ls -l /dev/rbd0
 brw-rw---- 1 root disk 251, 0 3月   2 15:58 /dev/rbd0
-</code></pre><p>4、RBD块设备已映射到本地的/dev/rbd0设备上，因此可以对设备进行格式化操作使用</p>
+</code></pre><p>4.RBD块设备已映射到本地的/dev/rbd0设备上，因此可以对设备进行格式化操作使用</p>
 <p>通过device list可以查看到当前机器RBD块设备的映射情况</p>
 <pre><code>[root@node-1 ~]# ls -l /dev/rbd0
 brw-rw---- 1 root disk 251, 0 3月   2 15:58 /dev/rbd0
@@ -344,8 +346,8 @@ realtime =none                   extsz=4096   blocks=0, rtextents=0
 /dev/rbd0        10G   33M   10G    1% /mnt/ceph-rbd
 [root@node-1 ~]# cd /mnt/ceph-rbd/
 [root@node-1 ceph-rbd]# echo &quot;testfile for ceph rbd&quot; &gt;rbd.log
-</code></pre><p>5、通过rbd info可以看到镜像块存储对象的前缀为rbd_data.10b96b8b4567，即存储被切割为多个object，object的前缀以rbd_data.10b96b8b4567开头，可以通过rados查看存储池中的obejct,这些object会随着真实使用空间的增长而自动增长</p>
-<p>6、至此，已经完成了rbd存储的创建和通过kernel的方式挂在到系统中使用，这种使用方式相对较少，一般以KVM的libvirt/qemu方式进行对接，如果需要卸载可以按照如下方式进行</p>
+</code></pre><p>5.通过rbd info可以看到镜像块存储对象的前缀为rbd_data.10b96b8b4567，即存储被切割为多个object，object的前缀以rbd_data.10b96b8b4567开头，可以通过rados查看存储池中的obejct,这些object会随着真实使用空间的增长而自动增长</p>
+<p>6.至此，已经完成了rbd存储的创建和通过kernel的方式挂在到系统中使用，这种使用方式相对较少，一般以KVM的libvirt/qemu方式进行对接，如果需要卸载可以按照如下方式进行</p>
 <pre><code>卸载文件系统
 [root@node-1 ~]# umount  /dev/rbd0 
 
