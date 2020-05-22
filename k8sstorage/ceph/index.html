@@ -86,6 +86,7 @@ docker 部署 $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ …">
     <li><a href="#ceph--1">ceph 配置</a>
       <ul>
         <li><a href="#pool">创建资源池pool</a></li>
+        <li><a href="#rbd">RBD块存储使用</a></li>
       </ul>
     </li>
   </ul>
@@ -242,10 +243,8 @@ enabled application 'rbd' on pool 'happylau'
     usage:   3.0 GiB used, 144 GiB / 147 GiB avail
     pgs:     128 active+clean
 </code></pre><p>至此，Ceph资源池pool相关操作到此完毕，接下来在pool中创建镜像。</p>
-<ul>
-<li>RBD块存储使用
-Ceph RBD块存储主要为虚拟化如KVM提供块存储设备，KVM需要依赖于qemu和libvirt和RBD块存储交互，这也是和云平台如OpenStack，CloudStack，Kubernetes交互的基础，因此非常有必要掌握Ceph原生RBD块存储的使用。由于当前Ceph集群未与虚拟化或者云平台进行集成，因此采用原生的rbd接口与Ceph进行交互（云平台通过调用rbd接口完成块存储生命周期管理）。</li>
-</ul>
+<h3 id="rbd">RBD块存储使用</h3>
+<p>Ceph RBD块存储主要为虚拟化如KVM提供块存储设备，KVM需要依赖于qemu和libvirt和RBD块存储交互，这也是和云平台如OpenStack，CloudStack，Kubernetes交互的基础，因此非常有必要掌握Ceph原生RBD块存储的使用。由于当前Ceph集群未与虚拟化或者云平台进行集成，因此采用原生的rbd接口与Ceph进行交互（云平台通过调用rbd接口完成块存储生命周期管理）。</p>
 <p>1.rbd块存储接口交互的工具为rbd，通过rbd命令来实现RBD块的创建，如创建一个10G的块存储</p>
 <pre><code>[root@node-1 ~]# rbd create -p happylau --image ceph-rbd-demo.img --size 10G 
 
