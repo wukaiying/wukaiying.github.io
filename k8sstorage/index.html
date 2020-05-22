@@ -53,15 +53,15 @@
           <li class="article-meta-date"><time>May 19, 2020</time></li>
         </ul>
         <div class="article-content">
-          $\color{#4285f4}{介绍}\color ceph 独一无二地用统一的系统提供了三大存储方式：
+          介绍 ceph 独一无二地用统一的系统提供了三大存储方式：
 ceph 块存储
 ceph 文件存储(cephFS)
 ceph 对象存储
 快速部署 ceph部署方式有很多中，常用方式有使用ceph-deploy来进行部署，这里为了测试使用docker方式快速搭建出一套ceph单机环境出来
-docker 部署 $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件   RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
+docker 部署 $ rm -fr /etc/ceph $ rm -fr /var/lib/ceph $ mkdir -p /etc/ceph $ mkdir -p /var/lib/ceph $ docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph:/var/lib/ceph -e MON_IP=192.168.0.2 -e CEPH_PUBLIC_NETWORK=192.168.0.1/23 -e CEPH_DEMO_UID=qqq -e CEPH_DEMO_ACCESS_KEY=qqq -e CEPH_DEMO_SECRET_KEY=qqq -e CEPH_DEMO_BUCKET=qqq --name cephdemo ceph/daemon demo $ curl http://192.168.0.0:5000 $ docker exec -it cephdemo ceph -s 架构及组件 ![](https://ae01.alicdn.com/kf/Hfde8af3989fb425c93d97f12a971695ct.jpg)    RADOS (Reliable Automomic Distributed Object Store)是ceph集群的基础，ceph中一切都是对象的形式存储，RADOS负责存储这些对象。确保数据一致性和可靠性。 ceph数据访问方法(如RBD,CephFS,RADOSGW,librados)所有操作方法都是在RADOS之上构建的。
   OSD ceph对象存储设备，负责存储用户实际数据，一个OSD守护进程和一个物理磁盘绑定，物理磁盘的数量和OSD守护进程的数量是一致的。 ceph osd由一个已经存在的linux文件系统物理磁盘驱动器和OSD服务组成。
- ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘    通过命令查看单个节点上OSD的状态：
-$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree  MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。  $ service ceph status mon $ ceph mon stat $ ceph mon_status $ ceph mon dump   librados 提供了访问RADOS的接口，支持PHP,Ruby,Java,Python等语言
+ ceph OSD 文件系统 --&gt;btrfs或XFS或ext4 物理磁盘  通过命令查看单个节点上OSD的状态：
+$ service ceph status osd #查看所有osd的ID $ service osd ls #检查osd map的状态 $ ceph osd stat #检查osd 树形图 $ ceph osd tree   MON Ceph monitor 跟踪整个集群的健康状态 一个典型的ceph集群通常包含多个monitor节点，且节点数为奇数个。使用Paxos算法来实现数据一致性。
         </div>
         <div class="article-readmore"><a href="/k8sstorage/ceph/">Read more...</a></div>
         <div class="article-floatclear"></div>
