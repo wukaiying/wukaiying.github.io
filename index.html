@@ -80,6 +80,31 @@ syntax = &#34;proto3&#34;;package proto;message GetRequest { string key = 1;}mes
         <div class="article-floatclear"></div>
       </article>
       <article class="article">
+        <a href="/docker/runc/" class="article-titles">
+          <h2 class="article-title">runc 学习</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>June 2, 2020</time></li>
+        </ul>
+        <div class="article-content">
+          前言 项目开发中需要让一些pod不依赖于docker运行时，也就是说集群节点中docker service停止运行后，业务pod需要正常 运行，此时我们可以使用runc+systemd的方式来启动业务容器。
+为了更好的理解runc，先看一下整个docker运行时架构。
+docker运行架构 从Docker 1.11开始，Docker容器运行已经不是简单的通过Docker daemon来启动，而是集成了containerd、runC等多个组件，这些组件之间相互协作来完成客户端请求和容器管理。
+现在架构图如下： 各个模块交互流程图如下： Docker Daemon Docker Daemon是docker管理容器的守护进程，但是从Docker 1.11开始，守护进程变成了dockerd。 Dockerd对外通过https与Docker client交互，是对容器和镜像操作的上层封装。
+Containerd Containerd是容器标准化的产物，当初为了兼容OCI标准，docker公司将容器运行时及容器管理 功能从Docker Daemon中剥离，dockerd只是docker公司在Containerd上的一层封装，Dockerd 通过 Containerd提供的grpc接口 来实现容器管理。
+container-shim 是一个真实运行的容器的真实垫片载体，每启动一个容器都会起一个新的container-shim，而后container-shim通过调用runc api(create/delete/kill)来实现容器的增删改查。 为什么需要container-shim呢，是因为用户通过dockerd发送创建或者删除容器请求，containerd收到后需要发送信号给container-shim，由container-shim来调用runc来完成容器创建/删除， 如果containerd直接和runc交互，当删除容器后，runc所启动的容器进程不复存在，无法反馈容器是否完成正确的操作。
+其次，通过container-shim可以对接不同的容器运行时，例如kata container。
+Runc OCI定义了容器运行时标准，runC是Docker按照开放容器格式标准（OCF, Open Container Format）制定的一种具体实现。 runC是从Docker的libcontainer中迁移而来的，实现了容器启停、资源隔离等功能。Docker默认提供了docker-runc实现，事实上，通过containerd的封装，可以在Docker Daemon启动的时候指定runc的实现。
+我们可以通过启动Docker Daemon时增加&ndash;add-runtime参数来选择其他的runC现。
+docker daemon --add-runtime &quot;custom=/usr/local/bin/my-runc-replacement&quot; 使用Runc 上面我们了解了容器运行时架构，由此发现我们完全可以不依赖于docker，可以直接通过runc来启动容器，并通过systemd来管理runc进程。 假设你的应用已经以pod的形式运行在kubernetes集群中，现在我们使用runc模式来运行你的应用。
+ 创建容器根文件系统  #获取pod中业务容器id $ kubectl describe pod npd #创建npd业务rootfs文件系统 $ mkidr -p npd/rootfs $ cd npd $ docker export podid | tar -C rootfs -xvf -  创建runc spec配置文件config.json  $ runc spec $ ls config.json rootfs $ cat config.json 使用runc spec创建出来的配置文件包含了启动一个容器所需要的所有配置信息，但是里面的一些字段需要我们根据自身业务进行补充，内容如下：
+{ &quot;ociVersion&quot;: &quot;1.0.0&quot;, &quot;process&quot;: { &quot;terminal&quot;: true, //使用sysytemd启动时需要修改为false，改为非终端模式 &quot;user&quot;: { &quot;uid&quot;: 0, &quot;gid&quot;: 0 }, &quot;args&quot;: [ //&quot;sh&quot; //需要替换为你业务启动参数 &quot;/usr/local/bin/eskort-npd&quot;, &quot;--v=3&quot;, &quot;--detached-mode=detached&quot;, .
+        </div>
+        <div class="article-readmore"><a href="/docker/runc/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/k8sstorage/ceph/" class="article-titles">
           <h2 class="article-title">Ceph学习笔记</h2>
           
@@ -282,30 +307,6 @@ cmd/kube-controller-manager/app/apps.go:69 func startReplicaSetController(ctx Co
 //pkg/controller/replicaset/replica_set.go:126  func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer coreinformers.PodInformer, kubeClient clientset.Interface, burstReplicas int, gvk schema.GroupVersionKind, metricOwnerName, queueName string, podControl controller.
         </div>
         <div class="article-readmore"><a href="/k8s/replicaset-source-code-read/">Read more...</a></div>
-        <div class="article-floatclear"></div>
-      </article>
-      <article class="article">
-        <a href="/k8s/controller-manager-source-code-read/" class="article-titles">
-          <h2 class="article-title">K8S Controller Manager 源码分析</h2>
-          
-        </a>
-        <ul class="article-meta">
-          <li class="article-meta-date"><time>April 19, 2020</time></li>
-          <li class="article-meta-categories">
-            <a href="/categories/k8s/">
-              <i class="fas fa-folder"></i>
-              k8s
-            </a>&nbsp;
-          </li>
-        </ul>
-        <div class="article-content">
-          版本环境   kubernetes版本：kubernetes:v1.16.0
-  go环境：go version go1.13.4 darwin/amd64
-  前言 Controller Manager内部包含Replication Controller、Node Controller、 ResourceQuota Controller、Namespace Controller、ServiceAccount Controller、Token Controller、Service Controller及Endpoint Controller这8种Controller， 每个Controller，它们通过API Server提供的（List-Watch）接口实时监控集群中特定资源的状态变化，当发生各种故障 导致某资源对象的状态发生变化时，Controller会尝试将其状态调整为期望的状态。
-代码总体解析 入口 # cmd/kube-controller-manager/controller-manager.go func main() { rand.Seed(time.Now().UnixNano()) command := app.NewControllerManagerCommand() logs.InitLogs() defer logs.FlushLogs() if err := command.Execute(); err != nil { os.Exit(1) } } 进入NewControllerManagerCommand 函数，可以看到新建ControllerManager需要两步 启动参数配置，及Run函数，进入Run函数。
-func NewControllerManagerCommand() *cobra.Command { s, err := options.NewKubeControllerManagerOptions() if err != nil { klog.Fatalf(&#34;unable to initialize command options: %v&#34;, err) } cmd := &amp;cobra.Command{ Use: &#34;kube-controller-manager&#34;, Run: func(cmd *cobra.Command, args []string) { verflag.PrintAndExitIfRequested() utilflag.PrintFlags(cmd.Flags()) c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List()) if err != nil { fmt.Fprintf(os.Stderr, &#34;%v\n&#34;, err) os.
-        </div>
-        <div class="article-readmore"><a href="/k8s/controller-manager-source-code-read/">Read more...</a></div>
         <div class="article-floatclear"></div>
       </article>
     </section>

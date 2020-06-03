@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Dockers - Kaiying</title>
+  <meta property="og:title" content="Dockers - Kaiying" />
+  <meta name="twitter:title" content="Dockers - Kaiying" />
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/docker/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+  <link href="/docker/index.xml" rel="alternate" type="application/rss+xml" title="Kaiying" />
+  <link href="/docker/index.xml" rel="feed" type="application/rss+xml" title="Kaiying" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="breadcrumb">
+    Dockers
+  </div>
+  <div class="main" role="main">
+    <section class="list section-list">
+      <article class="article">
+        <a href="/docker/runc/" class="article-titles">
+          <h2 class="article-title">runc 学习</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>June 2, 2020</time></li>
+        </ul>
+        <div class="article-content">
+          前言 项目开发中需要让一些pod不依赖于docker运行时，也就是说集群节点中docker service停止运行后，业务pod需要正常 运行，此时我们可以使用runc+systemd的方式来启动业务容器。
+为了更好的理解runc，先看一下整个docker运行时架构。
+docker运行架构 从Docker 1.11开始，Docker容器运行已经不是简单的通过Docker daemon来启动，而是集成了containerd、runC等多个组件，这些组件之间相互协作来完成客户端请求和容器管理。
+现在架构图如下： 各个模块交互流程图如下： Docker Daemon Docker Daemon是docker管理容器的守护进程，但是从Docker 1.11开始，守护进程变成了dockerd。 Dockerd对外通过https与Docker client交互，是对容器和镜像操作的上层封装。
+Containerd Containerd是容器标准化的产物，当初为了兼容OCI标准，docker公司将容器运行时及容器管理 功能从Docker Daemon中剥离，dockerd只是docker公司在Containerd上的一层封装，Dockerd 通过 Containerd提供的grpc接口 来实现容器管理。
+container-shim 是一个真实运行的容器的真实垫片载体，每启动一个容器都会起一个新的container-shim，而后container-shim通过调用runc api(create/delete/kill)来实现容器的增删改查。 为什么需要container-shim呢，是因为用户通过dockerd发送创建或者删除容器请求，containerd收到后需要发送信号给container-shim，由container-shim来调用runc来完成容器创建/删除， 如果containerd直接和runc交互，当删除容器后，runc所启动的容器进程不复存在，无法反馈容器是否完成正确的操作。
+其次，通过container-shim可以对接不同的容器运行时，例如kata container。
+Runc OCI定义了容器运行时标准，runC是Docker按照开放容器格式标准（OCF, Open Container Format）制定的一种具体实现。 runC是从Docker的libcontainer中迁移而来的，实现了容器启停、资源隔离等功能。Docker默认提供了docker-runc实现，事实上，通过containerd的封装，可以在Docker Daemon启动的时候指定runc的实现。
+我们可以通过启动Docker Daemon时增加&ndash;add-runtime参数来选择其他的runC现。
+docker daemon --add-runtime &quot;custom=/usr/local/bin/my-runc-replacement&quot; 使用Runc 上面我们了解了容器运行时架构，由此发现我们完全可以不依赖于docker，可以直接通过runc来启动容器，并通过systemd来管理runc进程。 假设你的应用已经以pod的形式运行在kubernetes集群中，现在我们使用runc模式来运行你的应用。
+ 创建容器根文件系统  #获取pod中业务容器id $ kubectl describe pod npd #创建npd业务rootfs文件系统 $ mkidr -p npd/rootfs $ cd npd $ docker export podid | tar -C rootfs -xvf -  创建runc spec配置文件config.json  $ runc spec $ ls config.json rootfs $ cat config.json 使用runc spec创建出来的配置文件包含了启动一个容器所需要的所有配置信息，但是里面的一些字段需要我们根据自身业务进行补充，内容如下：
+{ &quot;ociVersion&quot;: &quot;1.0.0&quot;, &quot;process&quot;: { &quot;terminal&quot;: true, //使用sysytemd启动时需要修改为false，改为非终端模式 &quot;user&quot;: { &quot;uid&quot;: 0, &quot;gid&quot;: 0 }, &quot;args&quot;: [ //&quot;sh&quot; //需要替换为你业务启动参数 &quot;/usr/local/bin/eskort-npd&quot;, &quot;--v=3&quot;, &quot;--detached-mode=detached&quot;, .
+        </div>
+        <div class="article-readmore"><a href="/docker/runc/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+    </section>
+    
+
+
+  </div>
+
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-rsslink">
+      <a href="/docker/index.xml" type="application/rss+xml" target="_blank" title="RSS">
+        <i class="fas fa-rss"></i>
+      </a>
+    </li>
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
