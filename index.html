@@ -80,6 +80,32 @@ syntax = &#34;proto3&#34;;package proto;message GetRequest { string key = 1;}mes
         <div class="article-floatclear"></div>
       </article>
       <article class="article">
+        <a href="/k8s/virtual-kubelet/" class="article-titles">
+          <h2 class="article-title">Virtual Kubelet 学习笔记</h2>
+          
+        </a>
+        <ul class="article-meta">
+          <li class="article-meta-date"><time>June 15, 2020</time></li>
+        </ul>
+        <div class="article-content">
+          <h2 id="virtual-kubelet-">virtual kubelet 是什么</h2>
+<p>先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。</p>
+<p>ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。</p>
+<p>virtual kubelet 则提供了一种能力，它可以将ECI实例纳管到指定的K8S集群中去，可以通过K8S来管理创建出来的ECI实例。</p>
+<h2 id="virtual-kubelet">如何使用virtual kubelet</h2>
+<ul>
+<li>前提条件，你需要有自己的ECI服务</li>
+<li>其次，你需要有一个自己的K8S集群</li>
+<li>接下俩，你需要实现virtual kubelet provider接口来扩展你的K8S集群，是它能够将ECI实例纳管到集群中。</li>
+</ul>
+<h2 id="provider">开发自己的provider</h2>
+<p>待续</p>
+
+        </div>
+        <div class="article-readmore"><a href="/k8s/virtual-kubelet/">Read more...</a></div>
+        <div class="article-floatclear"></div>
+      </article>
+      <article class="article">
         <a href="/docker/runc/" class="article-titles">
           <h2 class="article-title">runc 学习</h2>
           
@@ -280,33 +306,6 @@ The kubelet is the primary &quot;node agent&quot; that runs on each node. It can
  首先通过预选阶段过滤掉不合适的节点，例如根据podSpec中对系统资源的需求，会计算出所有节点剩余的资源是否可以满足pod需求，如果不满足则该节点会被抛弃。 其次通过预选阶段的节点，会再次进行优选。比如在满足pod资源需求的基础上，会优选出当前负载最小节点，保证每个集群节点资源被均衡使用。 最后选择打分最高的节点作为目标节点，如果得分相同则会随机选择一个，进行调度。  For given pod: +---------------------------------------------+ | Schedulable nodes: | | | | +--------+ +--------+ +--------+ | | | node 1 | | node 2 | | node 3 | | | +--------+ +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Pred. filters: node 3 doesn't have enough resource +-------------------+-------------------------+ | | v +-------------------+-------------------------+ | remaining nodes: | | +--------+ +--------+ | | | node 1 | | node 2 | | | +--------+ +--------+ | | | +-------------------+-------------------------+ | | v +-------------------+-------------------------+ Priority function: node 1: p=2 node 2: p=5 +-------------------+-------------------------+ | | v select max{node priority} = node 2 入口 scheduler使用cobra创建命令行客户端，进入NewSchedulerCommand
         </div>
         <div class="article-readmore"><a href="/k8s/kube-scheduler-source-code-read/">Read more...</a></div>
-        <div class="article-floatclear"></div>
-      </article>
-      <article class="article">
-        <a href="/k8s/replicaset-source-code-read/" class="article-titles">
-          <h2 class="article-title">Replica Set Controller 源码分析</h2>
-          
-        </a>
-        <ul class="article-meta">
-          <li class="article-meta-date"><time>April 21, 2020</time></li>
-          <li class="article-meta-categories">
-            <a href="/categories/k8s/">
-              <i class="fas fa-folder"></i>
-              k8s
-            </a>&nbsp;
-          </li>
-        </ul>
-        <div class="article-content">
-          版本环境 kubernetes版本：kubernetes:v1.16.0
-go环境：go version go1.13.4 darwin/amd64
-前言 前面文章已经总结到，deployment controller通过replicaset来控制pod的创建和删除，进而实现更高级操作例如，滚动更新，回滚等。本文继续从源码角度 分析replicaset controller如何控制pod的创建和删除。
-在分析源码前先考虑一下 replicaset 的使用场景，在平时的操作中其实我们并不会直接操作 replicaset，replicaset 也仅有几个简单的操作，创建、删除、更新等。
-源码分析 入口 我们在上一篇文章中也说道controller manager是所有k8s 资源controller的管控中心，包含的主要逻辑就是高可用选择leader，然后 遍历所有的controllers,对每一个controller进行初始化并启动，也就是说只要集群启动，所有的controller也会都启动起来，开始list-watch api server，来准备创建资源。
-cmd/kube-controller-manager/app/controllermanager.go:386 func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc { controllers := map[string]InitFunc{} controllers[&#34;endpoint&#34;] = startEndpointController controllers[&#34;endpointslice&#34;] = startEndpointSliceController ... controllers[&#34;deployment&#34;] = startDeploymentController controllers[&#34;replicaset&#34;] = startReplicaSetController } 接下来进入startReplicaSetController, 发现通过NewReplicaSetController初始化了ReplicaSetController，并并调用run方法启动controller。
-cmd/kube-controller-manager/app/apps.go:69 func startReplicaSetController(ctx ControllerContext) (http.Handler, bool, error) { if !ctx.AvailableResources[schema.GroupVersionResource{Group: &#34;apps&#34;, Version: &#34;v1&#34;, Resource: &#34;replicasets&#34;}] { return nil, false, nil } go replicaset.NewReplicaSetController( ctx.InformerFactory.Apps().V1().ReplicaSets(), ctx.InformerFactory.Core().V1().Pods(), ctx.ClientBuilder.ClientOrDie(&#34;replicaset-controller&#34;), replicaset.BurstReplicas, ).Run(int(ctx.ComponentConfig.ReplicaSetController.ConcurrentRSSyncs), ctx.Stop) return nil, true, nil } 我们先分析NewReplicaSetController看一下初始化ReplicaSetController的具体步骤：发现他会监听rs的add,update,delete操作，和pod的add,update,delete操作。 当这两种资源发送变化时，将key(name+namespace)添加到queue队列中去。
-//pkg/controller/replicaset/replica_set.go:126  func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer coreinformers.PodInformer, kubeClient clientset.Interface, burstReplicas int, gvk schema.GroupVersionKind, metricOwnerName, queueName string, podControl controller.
-        </div>
-        <div class="article-readmore"><a href="/k8s/replicaset-source-code-read/">Read more...</a></div>
         <div class="article-floatclear"></div>
       </article>
     </section>

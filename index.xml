@@ -7,7 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Copyright 2017 Your name</copyright>
-    <lastBuildDate>Tue, 02 Jun 2020 15:51:04 +0800</lastBuildDate>
+    <lastBuildDate>Mon, 15 Jun 2020 16:49:31 +0800</lastBuildDate>
     
 	<atom:link href="https://wukaiying.github.io/index.xml" rel="self" type="application/rss+xml" />
     
@@ -25,6 +25,18 @@ go-plugin 项目地址https://github.com/hashicorp/go-plugin
 Put(key string, value []byte) error Get(key string) ([]byte, error) ([]byte, error) 新建项目 这里我先将完整项目目录结构列出来
 . ├── Makefile ├── cmd │ ├── cmd │ ├── kv_wky │ └── main.go ├── pkg │ ├── plugins │ │ └── proto │ │ ├── plugin.pb.go │ │ └── plugin.proto │ └── shared │ ├── grpc.go │ └── plugin.go └── pluginclient ├── main.go └── pluginclient 定义proto 新建pkg/plugins/proto/plugin.proto文件，并生成plugin.pb.go
 syntax = &amp;#34;proto3&amp;#34;;package proto;message GetRequest { string key = 1;}message GetResponse { bytes value = 1;}message PutRequest { string key = 1; bytes value = 2;}message Empty {}service KV { rpc Get(GetRequest) returns (GetResponse); rpc Put(PutRequest) returns (Empty);} 定义对外暴露的插件接口 新建pkg/shared/plugin.</description>
+    </item>
+    
+    <item>
+      <title>Virtual Kubelet 学习笔记</title>
+      <link>https://wukaiying.github.io/k8s/virtual-kubelet/</link>
+      <pubDate>Mon, 15 Jun 2020 16:49:31 +0800</pubDate>
+      
+      <guid>https://wukaiying.github.io/k8s/virtual-kubelet/</guid>
+      <description>virtual kubelet 是什么 先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。
+ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。
+virtual kubelet 则提供了一种能力，它可以将ECI实例纳管到指定的K8S集群中去，可以通过K8S来管理创建出来的ECI实例。
+如何使用virtual kubelet  前提条件，你需要有自己的ECI服务 其次，你需要有一个自己的K8S集群 接下俩，你需要实现virtual kubelet provider接口来扩展你的K8S集群，是它能够将ECI实例纳管到集群中。  开发自己的provider 待续</description>
     </item>
     
     <item>

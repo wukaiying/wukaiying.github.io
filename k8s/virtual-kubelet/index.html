@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+  <title>Virtual Kubelet 学习笔记 - Kaiying</title>
+  <meta property="og:title" content="Virtual Kubelet 学习笔记 - Kaiying" />
+  <meta name="twitter:title" content="Virtual Kubelet 学习笔记 - Kaiying" />
+  <meta name="description" content="virtual kubelet 是什么 先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。
+ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。
+virtual kubelet 则提供了一种能力，它可以将ECI实例纳管到指定的K8S集群中去，可以通过K8S来管理创建出来的ECI实例。
+如何使用virtual kubelet  前提条件，你需要有自己的ECI服务 其次，你需要有一个自己的K8S集群 接下俩，你需要实现virtual kubelet provider接口来扩展你的K8S集群，是它能够将ECI实例纳管到集群中。  开发自己的provider 待续">
+  <meta property="og:description" content="virtual kubelet 是什么 先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。
+ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。
+virtual kubelet 则提供了一种能力，它可以将ECI实例纳管到指定的K8S集群中去，可以通过K8S来管理创建出来的ECI实例。
+如何使用virtual kubelet  前提条件，你需要有自己的ECI服务 其次，你需要有一个自己的K8S集群 接下俩，你需要实现virtual kubelet provider接口来扩展你的K8S集群，是它能够将ECI实例纳管到集群中。  开发自己的provider 待续">
+  <meta name="twitter:description" content="virtual kubelet 是什么 先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。
+ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。 …">
+  <meta name="author" content="kaiying"/>
+  <meta property="og:site_name" content="Kaiying" />
+  <meta property="og:url" content="https://wukaiying.github.io/k8s/virtual-kubelet/" />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="generator" content="Hugo 0.61.0" />
+
+  <link rel="stylesheet" href="/css/style.css" media="all" />
+  <link rel="stylesheet" href="/css/syntax.css" media="all" />
+  <link rel="stylesheet" href="/css/custom.css" media="all" />
+
+  <script src="/js/script.js"></script>
+  <script src="/js/custom.js"></script>
+  <script defer src="/js/fontawesome.js"></script>
+</head>
+
+<body>
+
+<header class="site-header">
+  <nav class="site-navi">
+    <h1 class="site-title"><a href="/">Kaiying</a></h1>
+    <ul class="site-navi-items">
+      <li class="site-navi-item-categories"><a href="/categories/" title="Categories">Categories</a></li>
+      <li class="site-navi-item-tags"><a href="/tags/" title="Tags">Tags</a></li>
+      <li class="site-navi-item-archives"><a href="/archives/" title="Archives">Archives</a></li>
+      <li class="site-navi-item-about"><a href="/about/" title="About">About</a></li>
+    </ul>
+  </nav>
+</header>
+<hr class="site-header-bottom">
+
+  <div class="main" role="main">
+    <article class="article">
+      
+      
+      <h1 class="article-title">Virtual Kubelet 学习笔记</h1>
+      
+      <hr class="article-title-bottom">
+      <ul class="article-meta">
+        <li class="article-meta-date"><time>June 15, 2020</time></li>
+      </ul>
+      
+      <h2 id="virtual-kubelet-">virtual kubelet 是什么</h2>
+<p>先看一下阿里巴巴ECI(Elastic Container Instance，弹性容器实例)，它为用户提供了一个容器实例，该容器里面可以运行用户服务，说白了就是为你创建一个容器。</p>
+<p>ECI适合运行serverless服务，及轻量级微服务。主要应用场景就是，用户可以按照自身业务流量需求在不需要准备服务器，或者虚拟机的情况下，通过ECI来扩容自己的服务。</p>
+<p>virtual kubelet 则提供了一种能力，它可以将ECI实例纳管到指定的K8S集群中去，可以通过K8S来管理创建出来的ECI实例。</p>
+<h2 id="virtual-kubelet">如何使用virtual kubelet</h2>
+<ul>
+<li>前提条件，你需要有自己的ECI服务</li>
+<li>其次，你需要有一个自己的K8S集群</li>
+<li>接下俩，你需要实现virtual kubelet provider接口来扩展你的K8S集群，是它能够将ECI实例纳管到集群中。</li>
+</ul>
+<h2 id="provider">开发自己的provider</h2>
+<p>待续</p>
+
+    </article>
+
+    
+
+
+    <ul class="pager article-pager">
+      <li class="pager-newer pager-noitem">&lt; Newer</li>
+      <li class="pager-older">
+        <a href="/k8s/calico-source-code/" data-toggle="tooltip" data-placement="top" title="Calico 学习及源码分析">Older &gt;</a>
+      </li>
+    </ul>
+  </div>
+
+
+<div class="site-footer">
+  <div class="copyright">&copy; Copyright 2017 Your name</div>
+  <ul class="site-footer-items">
+    <li class="site-footer-item-about"><a href="/about/" title="About">About</a></li>
+  </ul>
+  <div class="powerdby">
+    Powered by <a href="https://gohugo.io/">Hugo</a> and <a href="https://github.com/taikii/whiteplain">Whiteplain</a>
+  </div>
+</div>
+
+
+</body>
+</html>
